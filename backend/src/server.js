@@ -19,7 +19,6 @@ const clienteRoutes = require('./routes/clientes');
 const pedidoRoutes = require('./routes/pedidos');
 const zonaEntregaRoutes = require('./routes/zonas-entrega');
 const freteRoutes = require('./routes/frete');
-const seedRoutes = require('./routes/seed-endpoint'); // TEMPORÁRIO — remover após popular
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -58,7 +57,6 @@ app.use('/api/clientes', clienteRoutes);
 app.use('/api/pedidos', pedidoRoutes);
 app.use('/api/zonas-entrega', zonaEntregaRoutes);
 app.use('/api/frete', freteRoutes);
-app.use('/api/seed', seedRoutes); // TEMPORÁRIO — remover após popular o banco
 
 // Página inicial — informativa
 app.get('/', (req, res) => {
