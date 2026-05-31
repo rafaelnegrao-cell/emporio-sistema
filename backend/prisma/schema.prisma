@@ -1,0 +1,532 @@
+// Empório dos Animais — Schema Prisma
+// Gera o banco PostgreSQL automaticamente.
+// Atualizar: `npx prisma migrate dev --name nome_da_mudanca`
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// GRUPO 1 — ESTRUTURA ORGANIZACIONAL
+// ============================================================
+
+model Loja {
+  id                BigInt    @id @default(autoincrement())
+  codigo            String    @unique
+  nome              String
+  endereco          String
+  telefone          String?
+  cnpj              String?
+  ativa             Boolean   @default(true)
+  noEscopoDelivery  Boolean   @default(false)
+  latitude          Decimal?  @db.Decimal(10, 8)
+  longitude         Decimal?  @db.Decimal(11, 8)
+  criadoEm          DateTime  @default(now())
+  atualizadoEm      DateTime  @updatedAt
+
+  usuarios          Usuario[]
+  estoques          EstoqueLoja[]
+  precos            PrecoLoja[]
+  zonasEntrega      ZonaEntrega[]
+  pedidos           Pedido[]
+  clientesPreferidos Cliente[]
+
+  @@map("lojas")
+}
+
+enum PapelUsuario {
+  ADMIN
+  OPERADOR
+  ENTREGADOR
+}
+
+model Usuario {
+  id            BigInt        @id @default(autoincrement())
+  nome          String
+  email         String        @unique
+  senhaHash     String
+  papel         PapelUsuario
+  lojaId        BigInt?
+  telefone      String?
+  ativo         Boolean       @default(true)
+  ultimoLogin   DateTime?
+  criadoEm      DateTime      @default(now())
+  atualizadoEm  DateTime      @updatedAt
+
+  loja          Loja?         @relation(fields: [lojaId], references: [id])
+  entregas      Entrega[]
+  mudancasStatus StatusPedidoHistorico[]
+
+  @@map("usuarios")
+}
+
+// ============================================================
+// GRUPO 2 — CATÁLOGO
+// ============================================================
+
+model Categoria {
+  id              BigInt      @id @default(autoincrement())
+  nome            String
+  slug            String      @unique
+  categoriaPaiId  BigInt?
+  ordem           Int         @default(0)
+  ativa           Boolean     @default(true)
+  iconeUrl        String?
+  criadoEm        DateTime    @default(now())
+  atualizadoEm    DateTime    @updatedAt
+
+  categoriaPai    Categoria?  @relation("CategoriaHierarquia", fields: [categoriaPaiId], references: [id])
+  subcategorias   Categoria[] @relation("CategoriaHierarquia")
+  produtos        Produto[]
+
+  @@map("categorias")
+}
+
+enum CategoriaPet {
+  CAO
+  GATO
+  AVE
+  PEIXE
+  ROEDOR
+  REPTIL
+  OUTRO
+  MULTI
+}
+
+enum IdadePet {
+  FILHOTE
+  ADULTO
+  SENIOR
+  TODAS
+}
+
+enum PortePet {
+  MINI
+  PEQUENO
+  MEDIO
+  GRANDE
+  GIGANTE
+  TODOS
+}
+
+model Produto {
+  id              BigInt       @id @default(autoincrement())
+  sku             String       @unique
+  codigoBarras    String?
+  nome            String
+  descricao       String?      @db.Text
+  categoriaId     BigInt
+  marca           String?
+  precoBase       Decimal      @db.Decimal(12, 2)
+  pesoKg          Decimal?     @db.Decimal(8, 3)
+  dimensoes       Json?        // {altura, largura, profundidade} em cm
+  controlado      Boolean      @default(false)
+  precisaReceita  Boolean      @default(false)
+  categoriaPet    CategoriaPet?
+  idadePet        IdadePet?
+  portePet        PortePet?
+  ativo           Boolean      @default(true)
+  idHdTec         String?      // referência para integração com ERP HD TEC
+  criadoEm        DateTime     @default(now())
+  atualizadoEm    DateTime     @updatedAt
+  deletadoEm      DateTime?
+
+  categoria       Categoria    @relation(fields: [categoriaId], references: [id])
+  fotos           ProdutoFoto[]
+  estoques        EstoqueLoja[]
+  precos          PrecoLoja[]
+  itensPedido     ItemPedido[]
+  recompras       Recompra[]
+
+  @@index([categoriaPet])
+  @@index([ativo])
+  @@map("produtos")
+}
+
+model ProdutoFoto {
+  id          BigInt    @id @default(autoincrement())
+  produtoId   BigInt
+  url         String
+  ordem       Int       @default(0)
+  principal   Boolean   @default(false)
+  criadoEm    DateTime  @default(now())
+
+  produto     Produto   @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  @@map("produto_fotos")
+}
+
+model EstoqueLoja {
+  id                    BigInt    @id @default(autoincrement())
+  produtoId             BigInt
+  lojaId                BigInt
+  quantidade            Int       @default(0)
+  quantidadeReservada   Int       @default(0)
+  quantidadeMinima      Int       @default(0)
+  atualizadoEm          DateTime  @updatedAt
+
+  produto               Produto   @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  loja                  Loja      @relation(fields: [lojaId], references: [id])
+
+  @@unique([produtoId, lojaId])
+  @@map("estoque_loja")
+}
+
+model PrecoLoja {
+  id                BigInt     @id @default(autoincrement())
+  produtoId         BigInt
+  lojaId            BigInt
+  preco             Decimal    @db.Decimal(12, 2)
+  precoPromocional  Decimal?   @db.Decimal(12, 2)
+  inicioPromocao    DateTime?
+  fimPromocao       DateTime?
+  criadoEm          DateTime   @default(now())
+  atualizadoEm      DateTime   @updatedAt
+
+  produto           Produto    @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  loja              Loja       @relation(fields: [lojaId], references: [id])
+
+  @@unique([produtoId, lojaId])
+  @@map("preco_loja")
+}
+
+// ============================================================
+// GRUPO 3 — CLIENTE FINAL (B2C)
+// ============================================================
+
+model Cliente {
+  id                  BigInt     @id @default(autoincrement())
+  nome                String
+  cpf                 String?    @unique
+  email               String?    @unique
+  senhaHash           String?
+  whatsapp            String     @unique
+  dataNascimento      DateTime?
+  optInMarketing      Boolean    @default(false)
+  lojaPreferidaId     BigInt?
+  ultimoLogin         DateTime?
+  criadoEm            DateTime   @default(now())
+  atualizadoEm        DateTime   @updatedAt
+  deletadoEm          DateTime?
+
+  lojaPreferida       Loja?      @relation(fields: [lojaPreferidaId], references: [id])
+  pets                Pet[]
+  enderecos           Endereco[]
+  pedidos             Pedido[]
+  programaFidelidade  ProgramaFidelidade?
+  recompras           Recompra[]
+
+  @@index([whatsapp])
+  @@map("clientes")
+}
+
+enum EspeciePet {
+  CAO
+  GATO
+  AVE
+  PEIXE
+  ROEDOR
+  REPTIL
+  OUTRO
+}
+
+model Pet {
+  id              BigInt      @id @default(autoincrement())
+  clienteId       BigInt
+  nome            String
+  especie         EspeciePet
+  raca            String?
+  porte           PortePet?
+  dataNascimento  DateTime?
+  pesoKg          Decimal?    @db.Decimal(6, 2)
+  castrado        Boolean?
+  observacoes     String?     @db.Text
+  fotoUrl         String?
+  criadoEm        DateTime    @default(now())
+  atualizadoEm    DateTime    @updatedAt
+
+  cliente         Cliente     @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  @@map("pets")
+}
+
+model Endereco {
+  id                BigInt    @id @default(autoincrement())
+  clienteId         BigInt
+  apelido           String    @default("Endereço")
+  cep               String
+  logradouro        String
+  numero            String
+  complemento       String?
+  bairro            String
+  cidade            String
+  uf                String    @db.VarChar(2)
+  pontoReferencia   String?
+  latitude          Decimal?  @db.Decimal(10, 8)
+  longitude         Decimal?  @db.Decimal(11, 8)
+  principal         Boolean   @default(false)
+  criadoEm          DateTime  @default(now())
+  atualizadoEm      DateTime  @updatedAt
+
+  cliente           Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  pedidos           Pedido[]
+
+  @@index([cep])
+  @@map("enderecos")
+}
+
+model ZonaEntrega {
+  id                BigInt    @id @default(autoincrement())
+  lojaId            BigInt
+  nome              String
+  bairros           String[]
+  cepInicio         String?
+  cepFim            String?
+  taxaFrete         Decimal   @db.Decimal(8, 2)
+  taxaFreteAcimaDe  Decimal?  @db.Decimal(8, 2)
+  valorFreteGratis  Decimal?  @db.Decimal(10, 2)
+  prazoMinHoras     Int       @default(1)
+  prazoMaxHoras     Int       @default(24)
+  ativa             Boolean   @default(true)
+  prioridade        Int       @default(0)
+  criadoEm          DateTime  @default(now())
+  atualizadoEm      DateTime  @updatedAt
+
+  loja              Loja      @relation(fields: [lojaId], references: [id])
+
+  @@map("zonas_entrega")
+}
+
+// ============================================================
+// GRUPO 4 — OPERAÇÃO DE PEDIDO
+// ============================================================
+
+enum StatusPedido {
+  RASCUNHO
+  RECEBIDO
+  ACEITO
+  EM_SEPARACAO
+  SEPARADO
+  EM_ROTA
+  ENTREGUE
+  CANCELADO_CLIENTE
+  CANCELADO_LOJA
+  DEVOLVIDO
+}
+
+enum CanalOrigem {
+  APP
+  WHATSAPP
+  TELEFONE
+  BALCAO
+  IFOOD
+  RAPPI
+  OUTRO
+}
+
+model Pedido {
+  id                    BigInt        @id @default(autoincrement())
+  numero                String        @unique
+  clienteId             BigInt
+  lojaId                BigInt
+  enderecoEntregaId     BigInt
+  status                StatusPedido  @default(RECEBIDO)
+  canalOrigem           CanalOrigem
+  subtotal              Decimal       @db.Decimal(12, 2)
+  valorFrete            Decimal       @db.Decimal(8, 2)
+  valorDesconto         Decimal       @default(0) @db.Decimal(8, 2)
+  valorTotal            Decimal       @db.Decimal(12, 2)
+  cupomId               BigInt?
+  observacoesCliente    String?       @db.Text
+  observacoesInternas   String?       @db.Text
+  pedidoEm              DateTime      @default(now())
+  previsaoEntrega       DateTime?
+  entregueEm            DateTime?
+  atualizadoEm          DateTime      @updatedAt
+  deletadoEm            DateTime?
+
+  cliente               Cliente       @relation(fields: [clienteId], references: [id])
+  loja                  Loja          @relation(fields: [lojaId], references: [id])
+  enderecoEntrega       Endereco      @relation(fields: [enderecoEntregaId], references: [id])
+  cupom                 Cupom?        @relation(fields: [cupomId], references: [id])
+  itens                 ItemPedido[]
+  historicoStatus       StatusPedidoHistorico[]
+  entrega               Entrega?
+  pagamentos            Pagamento[]
+  avaliacaoNPS          AvaliacaoNPS?
+
+  @@index([status])
+  @@index([clienteId])
+  @@index([lojaId])
+  @@index([pedidoEm])
+  @@map("pedidos")
+}
+
+model ItemPedido {
+  id              BigInt    @id @default(autoincrement())
+  pedidoId        BigInt
+  produtoId       BigInt
+  quantidade      Int
+  precoUnitario   Decimal   @db.Decimal(12, 2)
+  precoTotal      Decimal   @db.Decimal(12, 2)
+  observacao      String?
+
+  pedido          Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  produto         Produto   @relation(fields: [produtoId], references: [id])
+
+  @@map("itens_pedido")
+}
+
+model StatusPedidoHistorico {
+  id              BigInt        @id @default(autoincrement())
+  pedidoId        BigInt
+  statusAnterior  StatusPedido?
+  statusNovo      StatusPedido
+  usuarioId       BigInt?
+  motivo          String?
+  criadoEm        DateTime      @default(now())
+
+  pedido          Pedido        @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  usuario         Usuario?      @relation(fields: [usuarioId], references: [id])
+
+  @@index([pedidoId])
+  @@map("status_pedido_historico")
+}
+
+model Entrega {
+  id                  BigInt      @id @default(autoincrement())
+  pedidoId            BigInt      @unique
+  entregadorId        BigInt
+  saidaEm             DateTime?
+  entregueEm          DateTime?
+  tentativasEntrega   Int         @default(1)
+  latitudeEntrega     Decimal?    @db.Decimal(10, 8)
+  longitudeEntrega    Decimal?    @db.Decimal(11, 8)
+  fotoComprovanteUrl  String?
+  assinaturaUrl       String?
+  observacao          String?     @db.Text
+
+  pedido              Pedido      @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  entregador          Usuario     @relation(fields: [entregadorId], references: [id])
+
+  @@map("entregas")
+}
+
+enum MetodoPagamento {
+  PIX
+  CARTAO_CREDITO
+  CARTAO_DEBITO
+  DINHEIRO
+  MAQUININHA
+  LINK_PAGAMENTO
+}
+
+enum StatusPagamento {
+  PENDENTE
+  APROVADO
+  RECUSADO
+  ESTORNADO
+}
+
+model Pagamento {
+  id                    BigInt           @id @default(autoincrement())
+  pedidoId              BigInt
+  metodo                MetodoPagamento
+  valor                 Decimal          @db.Decimal(12, 2)
+  status                StatusPagamento  @default(PENDENTE)
+  gatewayTransacaoId    String?
+  gatewayResposta       Json?
+  pagoEm                DateTime?
+  criadoEm              DateTime         @default(now())
+  atualizadoEm          DateTime         @updatedAt
+
+  pedido                Pedido           @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  @@index([gatewayTransacaoId])
+  @@map("pagamentos")
+}
+
+// ============================================================
+// GRUPO 5 — ENGAJAMENTO (Fase 3)
+// ============================================================
+
+enum TipoCupom {
+  PERCENTUAL
+  VALOR_FIXO
+  FRETE_GRATIS
+}
+
+model Cupom {
+  id                BigInt    @id @default(autoincrement())
+  codigo            String    @unique
+  tipo              TipoCupom
+  valor             Decimal?  @db.Decimal(10, 2)
+  valorMinimoCompra Decimal?  @db.Decimal(10, 2)
+  validoAte         DateTime
+  usosMaximos       Int?
+  usosAtuais        Int       @default(0)
+  ativo             Boolean   @default(true)
+  criadoEm          DateTime  @default(now())
+
+  pedidos           Pedido[]
+
+  @@map("cupons")
+}
+
+enum NivelFidelidade {
+  BRONZE
+  PRATA
+  OURO
+  DIAMANTE
+}
+
+model ProgramaFidelidade {
+  id                  BigInt           @id @default(autoincrement())
+  clienteId           BigInt           @unique
+  pontosAcumulados    Int              @default(0)
+  pontosResgatados    Int              @default(0)
+  nivel               NivelFidelidade  @default(BRONZE)
+  criadoEm            DateTime         @default(now())
+  atualizadoEm        DateTime         @updatedAt
+
+  cliente             Cliente          @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  @@map("programa_fidelidade")
+}
+
+model Recompra {
+  id              BigInt    @id @default(autoincrement())
+  clienteId       BigInt
+  produtoId       BigInt
+  quantidade      Int
+  frequenciaDias  Int
+  proximaCompra   DateTime
+  ativa           Boolean   @default(true)
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
+
+  cliente         Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  produto         Produto   @relation(fields: [produtoId], references: [id])
+
+  @@map("recompras")
+}
+
+model AvaliacaoNPS {
+  id              BigInt    @id @default(autoincrement())
+  pedidoId        BigInt    @unique
+  notaGeral       Int       // 0-10
+  notaEntregador  Int?
+  notaProduto     Int?
+  comentario      String?   @db.Text
+  respondidoEm    DateTime  @default(now())
+
+  pedido          Pedido    @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  @@map("avaliacoes_nps")
+}

@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --negrao-verde-escuro: #1F3A2E;
+  --negrao-dourado: #B8935A;
+  --negrao-off-white: #F4F1EA;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--negrao-off-white);
+  color: #2B2B2B;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* PWA — área safe nas notches do iOS */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
