@@ -1,32 +1,75 @@
-import '../styles/globals.css';
-import { AuthProvider } from '@/lib/auth';
+'use client';
 
-export const metadata = {
-  title: 'Empório dos Animais',
-  description: 'Cuidamos do melhor para o seu pet',
-  manifest: '/manifest.json',
-  themeColor: '#1F3A2E',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'default',
-    title: 'Empório'
-  }
-};
+// Contexto de autenticação do operador (backoffice / entregador).
+// Guarda o token JWT e os dados do usuário, persistindo no localStorage
+// para a sessão sobreviver a recarregamentos de página.
 
-export const viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  themeColor: '#1F3A2E'
-};
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { api } from '@/lib/api';
 
-export default function RootLayout({ children }) {
+const STORAGE_KEY = 'emporio_auth';
+
+const AuthContext = createContext(null);
+
+export function AuthProvider({ children }) {
+  const [token, setToken] = useState(null);
+  const [usuario, setUsuario] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+
+  // Restaura a sessão salva quando o app carrega (roda só no navegador).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const dados = JSON.parse(raw);
+        if (dados?.token) {
+          setToken(dados.token);
+          setUsuario(dados.usuario || null);
+        }
+      }
+    } catch (e) {
+      // Ignora storage corrompido / indisponível
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+
+  // Faz login no backend e guarda a sessão.
+  const login = useCallback(async (email, senha) => {
+    const resposta = await api.post('/api/auth/operador/login', { email, senha });
+    setToken(resposta.token);
+    setUsuario(resposta.usuario);
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ token: resposta.token, usuario: resposta.usuario })
+      );
+    } catch (e) {
+      // Ignora se o storage não estiver disponível
+    }
+    return resposta.usuario;
+  }, []);
+
+  // Encerra a sessão.
+  const logout = useCallback(() => {
+    setToken(null);
+    setUsuario(null);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (e) {}
+  }, []);
+
   return (
-    <html lang="pt-BR">
-      <body className="font-sans">
-        <AuthProvider>{children}</AuthProvider>
-      </body>
-    </html>
+    <AuthContext.Provider value={{ token, usuario, carregando, login, logout }}>
+      {children}
+    </AuthContext.Provider>
   );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error('useAuth precisa estar dentro de <AuthProvider>');
+  }
+  return ctx;
 }
