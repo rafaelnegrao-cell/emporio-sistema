@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Package, Users, Store, Map, BarChart3, Settings, LogOut } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { useAuth } from '@/lib/auth';
 
 const COLUNAS_KANBAN = [
   { status: 'RECEBIDO', titulo: 'Recebidos', cor: 'border-l-negrao-grafite-claro' },
@@ -15,21 +17,26 @@ const COLUNAS_KANBAN = [
 ];
 
 export default function AdminPage() {
+  const router = useRouter();
+  const { token, usuario, logout } = useAuth();
   const [kanban, setKanban] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
 
   useEffect(() => {
-    // Tenta carregar o kanban; falha silenciosamente quando backend não está rodando
-    api.get('/api/pedidos/kanban', {
-      token: 'demo' // backend rejeitará — exemplo apenas
-    })
+    if (!token) return;
+    setCarregando(true);
+    setErro(null);
+    api.get('/api/pedidos/kanban', { token })
       .then(setKanban)
-      .catch(err => {
-        setErro(err.message);
-      })
+      .catch(err => setErro(err.message))
       .finally(() => setCarregando(false));
-  }, []);
+  }, [token]);
+
+  function handleLogout() {
+    logout();
+    router.replace('/login');
+  }
 
   return (
     <div className="min-h-screen bg-negrao-off-white-claro flex">
@@ -52,13 +59,13 @@ export default function AdminPage() {
         </nav>
 
         <div className="px-3 py-4 border-t border-negrao-verde-medio">
-          <Link
-            href="/"
-            className="flex items-center gap-3 px-3 py-2 text-xs text-negrao-verde-claro hover:text-negrao-off-white transition"
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3 py-2 text-xs text-negrao-verde-claro hover:text-negrao-off-white transition"
           >
             <LogOut className="w-4 h-4" />
-            Voltar ao início
-          </Link>
+            Sair
+          </button>
         </div>
       </aside>
 
@@ -74,7 +81,13 @@ export default function AdminPage() {
             </h2>
           </div>
           <div className="text-right text-xs text-negrao-grafite-claro">
-            <p>Atualizado agora</p>
+            {usuario && (
+              <p className="text-negrao-verde-escuro font-medium">{usuario.nome}</p>
+            )}
+            <p>
+              {usuario?.papel}
+              {usuario?.loja?.nome ? ` · ${usuario.loja.nome}` : ''}
+            </p>
           </div>
         </header>
 
@@ -86,10 +99,8 @@ export default function AdminPage() {
 
           {erro && (
             <div className="bg-negrao-dourado-suave border border-negrao-dourado rounded-lg p-4 mb-6 text-sm">
-              <strong className="text-negrao-verde-escuro">Backend ainda não conectado.</strong>
-              <span className="text-negrao-grafite ml-2">
-                Configure NEXT_PUBLIC_API_URL no .env e rode o backend para ver pedidos reais.
-              </span>
+              <strong className="text-negrao-verde-escuro">Não foi possível carregar os pedidos.</strong>
+              <span className="text-negrao-grafite ml-2">{erro}</span>
             </div>
           )}
 
