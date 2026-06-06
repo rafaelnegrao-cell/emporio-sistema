@@ -17,9 +17,10 @@
     "react-dom": "^18.3.1",
     "lucide-react": "^0.460.0",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^2.5.4"
-    "xlsx": "^0.18.5",
+    "tailwind-merge": "^2.5.4",
+    "xlsx": "^0.18.5"
   },
+
   "devDependencies": {
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
