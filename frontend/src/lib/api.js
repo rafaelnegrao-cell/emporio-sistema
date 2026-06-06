@@ -1,55 +1,60 @@
-// Cliente HTTP para chamar o backend
-// Lê NEXT_PUBLIC_API_URL do ambiente
+// frontend/src/lib/api.js
+// Cliente HTTP do backend. Lê a URL pública do Railway de NEXT_PUBLIC_API_URL
+// (sem barra final) e injeta o JWT salvo no login.
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const BASE = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
 
-class ApiError extends Error {
-  constructor(message, status, body) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.body = body;
-  }
+function token() {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem('emporio_token');
 }
 
-async function request(path, options = {}) {
-  const { token, ...fetchOpts } = options;
-
-  const headers = {
-    'Content-Type': 'application/json',
-    ...fetchOpts.headers
-  };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+async function request(path, { method = 'GET', body, params } = {}) {
+  const url = new URL(`${BASE}${path}`);
+  if (params) {
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+    });
   }
+  const headers = { 'Content-Type': 'application/json' };
+  const t = token();
+  if (t) headers.Authorization = `Bearer ${t}`;
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...fetchOpts,
-    headers
+  const res = await fetch(url.toString(), {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+    cache: 'no-store',
   });
-
-  const contentType = response.headers.get('content-type');
-  const isJson = contentType && contentType.includes('application/json');
-  const body = isJson ? await response.json() : await response.text();
-
-  if (!response.ok) {
-    throw new ApiError(
-      body?.erro || response.statusText,
-      response.status,
-      body
-    );
+  if (!res.ok) {
+    let msg = `Erro ${res.status}`;
+    try {
+      const j = await res.json();
+      msg = j.erro || j.message || msg;
+    } catch (_) {}
+    throw new Error(msg);
   }
-
-  return body;
+  return res.status === 204 ? null : res.json();
 }
 
 export const api = {
-  get: (path, options) => request(path, { ...options, method: 'GET' }),
-  post: (path, data, options) => request(path, { ...options, method: 'POST', body: JSON.stringify(data) }),
-  put: (path, data, options) => request(path, { ...options, method: 'PUT', body: JSON.stringify(data) }),
-  patch: (path, data, options) => request(path, { ...options, method: 'PATCH', body: JSON.stringify(data) }),
-  delete: (path, options) => request(path, { ...options, method: 'DELETE' })
+  get: (path, params) => request(path, { params }),
+  post: (path, body) => request(path, { method: 'POST', body }),
+  patch: (path, body) => request(path, { method: 'PATCH', body }),
+  del: (path) => request(path, { method: 'DELETE' }),
 };
 
-export { ApiError };
+// Helpers de domínio
+export const produtosApi = {
+  list: (params) => api.get('/api/produtos', params),
+  get: (id) => api.get(`/api/produtos/${id}`),
+  create: (data) => api.post('/api/produtos', data),
+  update: (id, data) => api.patch(`/api/produtos/${id}`, data),
+};
+
+export const clientesApi = {
+  list: (params) => api.get('/api/clientes', params),
+  get: (id) => api.get(`/api/clientes/${id}`),
+  create: (data) => api.post('/api/clientes', data),
+  update: (id, data) => api.patch(`/api/clientes/${id}`, data),
+};

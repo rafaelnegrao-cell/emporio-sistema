@@ -1,5 +1,4 @@
 import '../styles/globals.css';
-import { AuthProvider } from '@/lib/auth';
 
 export const metadata = {
   title: 'Empório dos Animais',
@@ -25,7 +24,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="pt-BR">
       <body className="font-sans">
-        <AuthProvider>{children}</AuthProvider>
+        {children}
       </body>
     </html>
   );
