@@ -133,6 +133,10 @@ model Produto {
   portePet        PortePet?
   ativo           Boolean      @default(true)
   idHdTec         String?      // referência para integração com ERP HD TEC
+  custoMedio      Decimal?     @db.Decimal(12, 2)  // custo médio (HD TEC)
+  margem          Decimal?     @db.Decimal(6, 2)   // % calculada no save/import
+  alertaCadastro  String?      @default("ok")      // ok|prejuizo|custo_suspeito|sem_custo|venda_zero|revisar
+  giroMes         Int          @default(0)         // unidades vendidas no período de referência
   criadoEm        DateTime     @default(now())
   atualizadoEm    DateTime     @updatedAt
   deletadoEm      DateTime?
@@ -146,12 +150,9 @@ model Produto {
 
   @@index([categoriaPet])
   @@index([ativo])
+  @@index([marca])
+  @@index([alertaCadastro])
   @@map("produtos")
-
-  custoMedio     Decimal? @db.Decimal(12, 2)
-  margem         Decimal? @db.Decimal(6, 2)
-  alertaCadastro String?  @default("ok")
-  giroMes        Int      @default(0)
 }
 
 model ProdutoFoto {
@@ -216,6 +217,9 @@ model Cliente {
   optInMarketing      Boolean    @default(false)
   lojaPreferidaId     BigInt?
   ultimoLogin         DateTime?
+  totalGasto          Decimal?   @default(0) @db.Decimal(12, 2)  // soma dos pedidos entregues
+  qtdPedidos          Int        @default(0)                     // nº de pedidos entregues
+  ultimaCompraEm      DateTime?                                  // data do último pedido entregue
   criadoEm            DateTime   @default(now())
   atualizadoEm        DateTime   @updatedAt
   deletadoEm          DateTime?
@@ -229,10 +233,6 @@ model Cliente {
 
   @@index([whatsapp])
   @@map("clientes")
-
-  totalGasto     Decimal?  @db.Decimal(12, 2) @default(0)
-  qtdPedidos     Int       @default(0)
-  ultimaCompraEm DateTime?
 }
 
 enum EspeciePet {
