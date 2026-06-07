@@ -1,47 +1,122 @@
-// frontend/src/app/admin/page.js
-// Dashboard do backoffice (placeholder enxuto, só para a rota /admin compilar).
-// A sidebar e o topo vêm do admin/layout.js. Desenvolvemos esta tela de verdade depois.
+'use client';
 
-import Link from 'next/link';
+// Tela de login do backoffice — versão autossuficiente.
+// Não depende de AuthProvider/useAuth nem de imports do lib/, então:
+//  - não estoura na pré-renderização do build;
+//  - funciona em qualquer pasta (inclusive dentro de um grupo como (auth)).
+// Faz POST no backend, guarda o JWT em localStorage('emporio_token') e vai pro /admin.
+// (O api.js lê esse mesmo token automaticamente nas chamadas seguintes.)
 
-const ATALHOS = [
-  { href: '/admin/produtos', titulo: 'Produtos', desc: 'Catálogo, preços, margens e estoque' },
-  { href: '/admin/clientes', titulo: 'Clientes', desc: 'Base, pets, histórico e importação' },
-  { href: '/admin/pedidos', titulo: 'Pedidos', desc: 'Fila de pedidos do delivery (Kanban)' },
-];
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default function AdminDashboard() {
+const API = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
+  const [erro, setErro] = useState(null);
+  const [carregando, setCarregando] = useState(false);
+
+  async function entrar(e) {
+    e.preventDefault();
+    setErro(null);
+    setCarregando(true);
+    try {
+      const res = await fetch(`${API}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, senha }),
+      });
+      if (!res.ok) {
+        let msg = 'E-mail ou senha inválidos.';
+        try {
+          const j = await res.json();
+          msg = j.erro || j.message || msg;
+        } catch (_) {}
+        throw new Error(msg);
+      }
+      const data = await res.json();
+      const token = data.token || data.accessToken || (data.dados && data.dados.token);
+      if (token && typeof window !== 'undefined') {
+        window.localStorage.setItem('emporio_token', token);
+      }
+      router.push('/admin');
+    } catch (err) {
+      setErro(err.message || 'Não foi possível entrar.');
+      setCarregando(false);
+    }
+  }
+
   return (
-    <>
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#e3ddcf] bg-white px-7 py-4">
-        <div>
-          <div className="text-[11.5px] font-semibold uppercase tracking-wide text-[#8a8678]">Visão geral</div>
-          <h1 className="font-serif text-[22px] font-bold text-[#1F3A2E]">Dashboard</h1>
+    <main className="min-h-screen bg-negrao-off-white-claro flex items-center justify-center px-5 py-12">
+      <div className="w-full max-w-sm">
+        {/* Cabeçalho da marca */}
+        <div className="text-center mb-8">
+          <div className="inline-flex w-14 h-14 border-2 border-negrao-verde-escuro items-center justify-center mb-4">
+            <span className="font-serif text-2xl text-negrao-verde-escuro leading-none">RN</span>
+          </div>
+          <p className="text-[10px] tracking-[2px] text-negrao-dourado font-bold uppercase">
+            Backoffice · Empório dos Animais
+          </p>
+          <h1 className="font-serif text-2xl text-negrao-verde-escuro mt-1">Acesso restrito</h1>
         </div>
-        <div className="flex items-center gap-2 rounded-lg border border-[#e3ddcf] bg-[#F4F1EA] px-3 py-1.5 text-[13px] font-semibold text-[#1F3A2E]">
-          <span className="h-[7px] w-[7px] rounded-full bg-[#3f7d5b]" />Av. Maringá
-        </div>
-      </div>
 
-      <div className="flex-1 px-7 pb-16 pt-6">
-        <p className="mb-6 max-w-2xl text-[14.5px] text-[#5a5750]">
-          Painel de operação do delivery do Empório dos Animais. Acesse as áreas pelos atalhos abaixo
-          ou pelo menu lateral.
+        {/* Formulário */}
+        <form
+          onSubmit={entrar}
+          className="bg-white border border-negrao-borda rounded-xl p-6 space-y-4"
+        >
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-negrao-grafite-claro mb-1.5">
+              E-mail
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username"
+              required
+              className="w-full border border-negrao-borda rounded-lg px-3 py-2.5 text-sm text-negrao-grafite outline-none focus:border-negrao-verde-escuro"
+              placeholder="voce@emporio.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-negrao-grafite-claro mb-1.5">
+              Senha
+            </label>
+            <input
+              type="password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              autoComplete="current-password"
+              required
+              className="w-full border border-negrao-borda rounded-lg px-3 py-2.5 text-sm text-negrao-grafite outline-none focus:border-negrao-verde-escuro"
+              placeholder="••••••••"
+            />
+          </div>
+
+          {erro && (
+            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {erro}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={carregando}
+            className="w-full bg-negrao-verde-escuro text-negrao-off-white rounded-lg py-3 text-sm font-bold uppercase tracking-wider hover:bg-negrao-verde-medio transition disabled:opacity-60"
+          >
+            {carregando ? 'Entrando…' : 'Entrar'}
+          </button>
+        </form>
+
+        <p className="text-center text-[10px] tracking-[2px] text-negrao-dourado font-bold uppercase mt-6">
+          Negrão · Diagnóstico &amp; Soluções Empresariais
         </p>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {ATALHOS.map((a) => (
-            <Link
-              key={a.href}
-              href={a.href}
-              className="rounded-xl border border-[#e3ddcf] bg-white p-5 transition hover:-translate-y-px hover:border-[#B8935A]"
-            >
-              <div className="font-serif text-[18px] font-bold text-[#1F3A2E]">{a.titulo}</div>
-              <div className="mt-1 text-[13px] text-[#6b6657]">{a.desc}</div>
-              <div className="mt-3 text-[13px] font-semibold text-[#B8935A]">Abrir →</div>
-            </Link>
-          ))}
-        </div>
       </div>
-    </>
+    </main>
   );
 }
