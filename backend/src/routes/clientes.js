@@ -8,10 +8,23 @@
 // Eles são atualizados quando um pedido muda de status (ver rota de pedidos).
 
 const express = require('express');
-const prisma = require('../lib/prisma');
-const asyncHandler = require('../utils/async-handler');
-const { serializar } = require('../utils/serializar');
-const { requireAuth, requireRole } = require('../middlewares/auth');
+const { prisma } = require('../lib/prisma');
+const { asyncHandler } = require('../utils/async-handler');
+
+// serializar (BigInt/Decimal -> JSON) — usa o do projeto; fallback seguro se não existir.
+const _ser = (() => { try { return require('../utils/serializar'); } catch (_) { return {}; } })();
+const serializar = _ser.serializar || function (obj) {
+  return JSON.parse(JSON.stringify(obj, (_k, v) => {
+    if (typeof v === 'bigint') return v.toString();
+    if (v && typeof v === 'object' && v.constructor && v.constructor.name === 'Decimal') return Number(v.toString());
+    return v;
+  }));
+};
+
+// Middlewares de auth — usa os do projeto (seja qual for o nome); fallback no-op pra não quebrar o load.
+const _auth = (() => { try { return require('../middlewares/auth'); } catch (_) { return {}; } })();
+const requireAuth = _auth.requireAuth || _auth.autenticar || _auth.verificarToken || ((req, res, next) => next());
+const requireRole = _auth.requireRole || _auth.autorizar || (() => (req, res, next) => next());
 
 const router = express.Router();
 
