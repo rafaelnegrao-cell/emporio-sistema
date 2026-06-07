@@ -50,7 +50,15 @@ export default function ProdutosPage() {
         page,
         perPage: 25,
       });
-      setResp(r);
+      setResp({
+        data: Array.isArray(r?.data) ? r.data : [],
+        page: r?.page || 1,
+        perPage: r?.perPage || 25,
+        total: r?.total || 0,
+        totalPages: r?.totalPages || 1,
+        facets: { marcas: r?.facets?.marcas || [], categorias: r?.facets?.categorias || [] },
+        kpis: r?.kpis || {},
+      });
     } catch (e) {
       setErro(e.message);
     } finally {
