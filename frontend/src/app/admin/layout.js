@@ -1,7 +1,8 @@
 // frontend/src/app/admin/layout.js
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 const NAV = [
@@ -38,6 +39,32 @@ function Icon({ name }) {
 
 export default function AdminLayout({ children }) {
   const path = usePathname();
+  const router = useRouter();
+  const [liberado, setLiberado] = useState(false);
+
+  // Guard de sessão: sem token salvo no login, manda pro /login.
+  useEffect(() => {
+    const t = typeof window !== 'undefined' && window.localStorage.getItem('emporio_token');
+    if (!t) {
+      router.replace('/login');
+      return;
+    }
+    setLiberado(true);
+  }, [router]);
+
+  function sair() {
+    if (typeof window !== 'undefined') window.localStorage.removeItem('emporio_token');
+    router.replace('/login');
+  }
+
+  if (!liberado) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-[#F4F1EA] text-[#1F3A2E]">
+        <div className="text-sm">Verificando acesso…</div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-[#F4F1EA] text-[#2B2B2B]">
       {/* Sidebar */}
@@ -74,7 +101,13 @@ export default function AdminLayout({ children }) {
         </nav>
         <div className="border-t border-white/10 px-5 py-4 text-[12px]">
           <b className="block text-[13px] text-white">Rafael Negrão</b>
-          Administrador
+          <span className="text-[#A8B5A0]">Administrador</span>
+          <button
+            onClick={sair}
+            className="mt-2 block text-[11px] font-semibold uppercase tracking-wider text-[#B8935A] hover:text-white"
+          >
+            Sair
+          </button>
         </div>
       </aside>
 
