@@ -47,6 +47,7 @@ export default function PedidosPage() {
   const [drag, setDrag] = useState(null); // id sendo arrastado
   const [hover, setHover] = useState(null); // coluna em hover no drop
   const [detalhe, setDetalhe] = useState(null); // pedido aberto no painel
+  const [novo, setNovo] = useState(false);
   const [salvando, setSalvando] = useState(false);
 
   const carregar = useCallback(async () => {
@@ -148,6 +149,12 @@ export default function PedidosPage() {
           >
             {loading ? 'Atualizando…' : 'Atualizar'}
           </button>
+          <button
+            onClick={() => setNovo(true)}
+            className="rounded-lg bg-[#B8935A] px-4 py-2 text-[13px] font-semibold text-[#16291f] hover:bg-[#a8824a]"
+          >
+            + Novo pedido
+          </button>
         </div>
       </div>
 
@@ -232,6 +239,15 @@ export default function PedidosPage() {
           onClose={() => setDetalhe(null)}
           onAvancar={() => { const n = proximo(detalhe.status); if (n) mudarStatus(detalhe.id, n); }}
           onStatus={(s) => mudarStatus(detalhe.id, s)}
+        />
+      )}
+
+      {/* Novo pedido */}
+      {novo && (
+        <NovoPedido
+          lojas={lojas}
+          onClose={() => setNovo(false)}
+          onCreated={() => { setNovo(false); carregar(); }}
         />
       )}
     </>
@@ -350,6 +366,242 @@ function Linha({ lab, val }) {
     <div className="flex justify-between gap-4 border-b border-[#f0ece0] py-2 last:border-b-0">
       <span className="text-[#8a8678]">{lab}</span>
       <span className="text-right">{val}</span>
+    </div>
+  );
+}
+
+const CANAL_OPTS = [
+  { v: 'WHATSAPP', t: 'WhatsApp' },
+  { v: 'TELEFONE', t: 'Telefone' },
+  { v: 'BALCAO', t: 'Balcão' },
+  { v: 'APP', t: 'App' },
+  { v: 'OUTRO', t: 'Outro' },
+];
+
+function NovoPedido({ lojas, onClose, onCreated }) {
+  const [cliente, setCliente] = useState(null);
+  const [cBusca, setCBusca] = useState('');
+  const [cRes, setCRes] = useState([]);
+  const [enderecos, setEnderecos] = useState([]);
+  const [endSel, setEndSel] = useState('novo'); // id do endereço ou 'novo'
+  const [end, setEnd] = useState({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: 'PR' });
+  const [lojaId, setLojaId] = useState('');
+  const [canal, setCanal] = useState('WHATSAPP');
+  const [itens, setItens] = useState([]); // {produtoId, nome, preco, quantidade}
+  const [pBusca, setPBusca] = useState('');
+  const [pRes, setPRes] = useState([]);
+  const [frete, setFrete] = useState('');
+  const [desconto, setDesconto] = useState('');
+  const [criando, setCriando] = useState(false);
+  const [erro, setErro] = useState(null);
+  const tc = useState(() => ({ t: null }))[0];
+  const tp = useState(() => ({ t: null }))[0];
+
+  useEffect(() => { if (lojas.length === 1) setLojaId(String(lojas[0].id)); }, [lojas]);
+
+  const buscarClientes = (txt) => {
+    setCBusca(txt);
+    clearTimeout(tc.t);
+    if (txt.trim().length < 2) { setCRes([]); return; }
+    tc.t = setTimeout(async () => {
+      try { const r = await api.get('/api/clientes', { q: txt, perPage: 8 }); setCRes(Array.isArray(r?.data) ? r.data : []); }
+      catch (_) { setCRes([]); }
+    }, 250);
+  };
+
+  const escolherCliente = async (c) => {
+    setCliente(c); setCRes([]); setCBusca('');
+    setEnderecos([]); setEndSel('novo');
+    try {
+      const det = await api.get(`/api/clientes/${c.id}`);
+      const eds = Array.isArray(det?.enderecos) ? det.enderecos : [];
+      setEnderecos(eds);
+      if (eds.length) {
+        const principal = eds.find((e) => e.principal) || eds[0];
+        setEndSel(String(principal.id));
+      }
+    } catch (_) { /* segue com endereço novo */ }
+  };
+
+  const buscarProdutos = (txt) => {
+    setPBusca(txt);
+    clearTimeout(tp.t);
+    if (txt.trim().length < 2) { setPRes([]); return; }
+    tp.t = setTimeout(async () => {
+      try { const r = await api.get('/api/produtos', { q: txt, perPage: 8 }); setPRes(Array.isArray(r?.data) ? r.data : []); }
+      catch (_) { setPRes([]); }
+    }, 250);
+  };
+
+  const addItem = (p) => {
+    setPRes([]); setPBusca('');
+    setItens((arr) => {
+      const ex = arr.find((i) => String(i.produtoId) === String(p.id));
+      if (ex) return arr.map((i) => (String(i.produtoId) === String(p.id) ? { ...i, quantidade: i.quantidade + 1 } : i));
+      return [...arr, { produtoId: p.id, nome: p.nome, preco: Number(p.preco || 0), quantidade: 1 }];
+    });
+  };
+  const setQtd = (id, q) => setItens((arr) => arr.map((i) => (String(i.produtoId) === String(id) ? { ...i, quantidade: Math.max(1, parseInt(q, 10) || 1) } : i)));
+  const remItem = (id) => setItens((arr) => arr.filter((i) => String(i.produtoId) !== String(id)));
+
+  const subtotal = itens.reduce((s, i) => s + i.preco * i.quantidade, 0);
+  const total = subtotal + (Number(frete) || 0) - (Number(desconto) || 0);
+  const usaEndNovo = endSel === 'novo' || !enderecos.length;
+
+  const criar = async () => {
+    setErro(null);
+    if (!cliente) return setErro('Selecione o cliente.');
+    if (!lojaId) return setErro('Selecione a loja.');
+    if (!itens.length) return setErro('Adicione ao menos um item.');
+    if (usaEndNovo && !end.logradouro && !end.bairro && !end.cidade) return setErro('Informe o endereço de entrega.');
+    setCriando(true);
+    try {
+      await api.post('/api/pedidos', {
+        clienteId: cliente.id,
+        lojaId,
+        canalOrigem: canal,
+        enderecoEntregaId: usaEndNovo ? undefined : endSel,
+        endereco: usaEndNovo ? end : undefined,
+        itens: itens.map((i) => ({ produtoId: i.produtoId, quantidade: i.quantidade })),
+        valorFrete: Number(frete) || 0,
+        valorDesconto: Number(desconto) || 0,
+      });
+      onCreated();
+    } catch (e) {
+      setErro(e.message);
+      setCriando(false);
+    }
+  };
+
+  const inp = 'w-full rounded-lg border border-[#e3ddcf] px-3 py-2 text-[13.5px] outline-none focus:border-[#B8935A]';
+  const lab = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[#8a8678]';
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/30" onClick={onClose}>
+      <div className="flex h-full w-full max-w-[480px] flex-col bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between border-b border-[#e3ddcf] px-6 py-4">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8678]">Operação</div>
+            <h3 className="font-serif text-[20px] font-bold text-[#1F3A2E]">Novo pedido</h3>
+          </div>
+          <button onClick={onClose} className="text-[20px] leading-none text-[#8a8678] hover:text-[#1F3A2E]">×</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {/* Cliente */}
+          <label className={lab}>Cliente</label>
+          {cliente ? (
+            <div className="mb-3 flex items-center justify-between rounded-lg border border-[#e3ddcf] bg-[#F4F1EA] px-3 py-2">
+              <span className="text-[13.5px] text-[#1F3A2E]">{cliente.nome}<span className="ml-2 text-[12px] text-[#8a8678]">{cliente.whatsapp || ''}</span></span>
+              <button onClick={() => { setCliente(null); setEnderecos([]); }} className="text-[12px] font-semibold text-[#B8935A]">trocar</button>
+            </div>
+          ) : (
+            <div className="relative mb-3">
+              <input className={inp} value={cBusca} onChange={(e) => buscarClientes(e.target.value)} placeholder="Buscar por nome ou WhatsApp…" />
+              {cRes.length > 0 && (
+                <div className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-[#e3ddcf] bg-white shadow">
+                  {cRes.map((c) => (
+                    <button key={c.id} onClick={() => escolherCliente(c)} className="block w-full px-3 py-2 text-left text-[13px] hover:bg-[#F4F1EA]">
+                      {c.nome} <span className="text-[#8a8678]">· {c.whatsapp || '—'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Loja + Canal */}
+          <div className="mb-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className={lab}>Loja</label>
+              <select className={inp} value={lojaId} onChange={(e) => setLojaId(e.target.value)}>
+                <option value="">Selecione…</option>
+                {lojas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={lab}>Canal</label>
+              <select className={inp} value={canal} onChange={(e) => setCanal(e.target.value)}>
+                {CANAL_OPTS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Endereço */}
+          <label className={lab}>Endereço de entrega</label>
+          {enderecos.length > 0 && (
+            <select className={`${inp} mb-2`} value={endSel} onChange={(e) => setEndSel(e.target.value)}>
+              {enderecos.map((e) => (
+                <option key={e.id} value={e.id}>{[e.logradouro, e.numero, e.bairro].filter(Boolean).join(', ')}</option>
+              ))}
+              <option value="novo">+ Outro endereço</option>
+            </select>
+          )}
+          {usaEndNovo && (
+            <div className="mb-3 grid grid-cols-6 gap-2">
+              <input className={`${inp} col-span-4`} value={end.logradouro} onChange={(e) => setEnd({ ...end, logradouro: e.target.value })} placeholder="Rua / logradouro" />
+              <input className={`${inp} col-span-2`} value={end.numero} onChange={(e) => setEnd({ ...end, numero: e.target.value })} placeholder="Nº" />
+              <input className={`${inp} col-span-3`} value={end.bairro} onChange={(e) => setEnd({ ...end, bairro: e.target.value })} placeholder="Bairro" />
+              <input className={`${inp} col-span-3`} value={end.cidade} onChange={(e) => setEnd({ ...end, cidade: e.target.value })} placeholder="Cidade" />
+              <input className={`${inp} col-span-2`} value={end.cep} onChange={(e) => setEnd({ ...end, cep: e.target.value })} placeholder="CEP" />
+              <input className={`${inp} col-span-4`} value={end.complemento} onChange={(e) => setEnd({ ...end, complemento: e.target.value })} placeholder="Complemento (opcional)" />
+            </div>
+          )}
+
+          {/* Itens */}
+          <label className={lab}>Itens</label>
+          <div className="relative mb-2">
+            <input className={inp} value={pBusca} onChange={(e) => buscarProdutos(e.target.value)} placeholder="Buscar produto por nome ou SKU…" />
+            {pRes.length > 0 && (
+              <div className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-[#e3ddcf] bg-white shadow">
+                {pRes.map((p) => (
+                  <button key={p.id} onClick={() => addItem(p)} className="flex w-full items-center justify-between px-3 py-2 text-left text-[13px] hover:bg-[#F4F1EA]">
+                    <span className="truncate pr-2">{p.nome}</span>
+                    <span className="text-[#1F3A2E]">{BRL(p.preco)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {itens.length > 0 && (
+            <div className="mb-3 rounded-lg border border-[#e3ddcf]">
+              {itens.map((i) => (
+                <div key={i.produtoId} className="flex items-center gap-2 border-b border-[#eee7d8] px-3 py-2 last:border-b-0">
+                  <span className="flex-1 truncate text-[13px] text-[#3a3730]">{i.nome}</span>
+                  <input type="number" min="1" value={i.quantidade} onChange={(e) => setQtd(i.produtoId, e.target.value)} className="w-14 rounded-md border border-[#e3ddcf] px-2 py-1 text-center text-[13px] outline-none focus:border-[#B8935A]" />
+                  <span className="w-20 text-right text-[13px] font-semibold text-[#1F3A2E]">{BRL(i.preco * i.quantidade)}</span>
+                  <button onClick={() => remItem(i.produtoId)} className="text-[16px] leading-none text-[#b9b3a3] hover:text-[#a85a52]">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Frete / desconto */}
+          <div className="mb-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className={lab}>Frete (R$)</label>
+              <input type="number" min="0" step="0.01" className={inp} value={frete} onChange={(e) => setFrete(e.target.value)} placeholder="0,00" />
+            </div>
+            <div>
+              <label className={lab}>Desconto (R$)</label>
+              <input type="number" min="0" step="0.01" className={inp} value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" />
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-[#F4F1EA] px-3.5 py-3 text-[13px]">
+            <div className="flex justify-between"><span className="text-[#8a8678]">Subtotal</span><span>{BRL(subtotal)}</span></div>
+            <div className="mt-1 flex justify-between border-t border-[#e3ddcf] pt-2 text-[15px] font-bold text-[#1F3A2E]"><span>Total</span><span>{BRL(total)}</span></div>
+          </div>
+
+          {erro && <div className="mt-3 rounded-lg border border-[#f0d9d6] bg-[#fbeeec] px-3 py-2 text-[13px] text-[#b23b3b]">{erro}</div>}
+        </div>
+
+        <div className="border-t border-[#e3ddcf] px-6 py-4">
+          <button onClick={criar} disabled={criando} className="w-full rounded-lg bg-[#B8935A] px-4 py-2.5 text-[14px] font-semibold text-[#16291f] hover:bg-[#a8824a] disabled:opacity-50">
+            {criando ? 'Criando…' : 'Criar pedido'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
