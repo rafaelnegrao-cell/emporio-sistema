@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { produtosApi } from '../../../lib/api';
+import { produtosApi, api } from '../../../lib/api';
 
 const PET_LABEL = { CAO: 'Cão', GATO: 'Gato', AVE: 'Ave', PEIXE: 'Peixe', ROEDOR: 'Roedor', MULTI: 'Multi', OUTRO: '—' };
 const FLAG = {
@@ -33,6 +33,8 @@ export default function ProdutosPage() {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState(null);
   const [editando, setEditando] = useState(undefined); // undefined fechado | null novo | obj editar
+  const [importando, setImportando] = useState(false);
+  const fileRef = useRef();
   const debounce = useRef();
 
   const carregar = useCallback(async () => {
@@ -102,6 +104,76 @@ export default function ProdutosPage() {
     a.click();
   };
 
+  // Importação por Excel — lê a planilha, mapeia colunas e envia em lotes pro backend.
+  const onArquivo = async (e) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
+    if (!file) return;
+    const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+    const num = (v) => {
+      if (v === '' || v == null) return null;
+      if (typeof v === 'number') return v;
+      const s = String(v).trim().replace(/\s/g, '');
+      const n = Number(s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s);
+      return isNaN(n) ? null : n;
+    };
+    try {
+      setImportando(true);
+      const XLSX = await import('xlsx');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      if (!rows.length) { alert('A planilha está vazia.'); return; }
+
+      const keys = Object.keys(rows[0]);
+      const find = (...alts) => keys.find((k) => alts.includes(norm(k)));
+      const cSku = find('sku', 'codigo', 'código');
+      const cNome = find('nome', 'produto', 'descricao', 'descrição');
+      const cMarca = find('marca');
+      const cCat = find('categoria');
+      const cPet = find('pet', 'especie', 'espécie');
+      const cCusto = find('custo', 'custo medio', 'custo médio');
+      const cPreco = find('preco', 'preço', 'preco base', 'valor');
+      const cGiro = find('giro', 'giromes', 'giro mes');
+      const cAtivo = find('ativo');
+      if (!cSku || !cNome) {
+        alert('Não encontrei as colunas obrigatórias "SKU" e "Nome". Confira o cabeçalho da planilha.');
+        return;
+      }
+
+      const produtos = rows
+        .map((r) => ({
+          sku: String(r[cSku] ?? '').trim(),
+          nome: String(r[cNome] ?? '').trim(),
+          marca: cMarca ? String(r[cMarca] ?? '').trim() : '',
+          categoria: cCat ? String(r[cCat] ?? '').trim() : '',
+          pet: cPet ? String(r[cPet] ?? '').trim() : '',
+          custo: cCusto ? num(r[cCusto]) : null,
+          preco: cPreco ? (num(r[cPreco]) ?? 0) : 0,
+          giro: cGiro ? (parseInt(r[cGiro], 10) || 0) : 0,
+          ativo: cAtivo ? r[cAtivo] : true,
+        }))
+        .filter((p) => p.sku && p.nome);
+
+      if (!produtos.length) { alert('Nenhuma linha válida (com SKU e Nome) encontrada.'); return; }
+      if (!confirm(`Importar ${produtos.length} produto(s)? Itens com o mesmo SKU serão atualizados.`)) return;
+
+      const LOTE = 200;
+      let criados = 0, atualizados = 0, ignorados = 0, cats = 0;
+      for (let i = 0; i < produtos.length; i += LOTE) {
+        const r = await api.post('/api/produtos/importar', { produtos: produtos.slice(i, i + LOTE) });
+        criados += r.criados || 0; atualizados += r.atualizados || 0; ignorados += r.ignorados || 0; cats += r.categoriasCriadas || 0;
+      }
+      alert(`Importação concluída.\nCriados: ${criados}\nAtualizados: ${atualizados}\nIgnorados: ${ignorados}\nCategorias novas: ${cats}`);
+      setPage(1);
+      carregar();
+    } catch (err) {
+      alert('Erro ao importar: ' + err.message);
+    } finally {
+      setImportando(false);
+    }
+  };
+
   const Th = ({ k: key, children, align = 'left' }) => (
     <th
       onClick={() => ordenar(key)}
@@ -161,6 +233,10 @@ export default function ProdutosPage() {
           <Sel value={filtros.pet} onChange={(v) => setF('pet', v)}
                opts={[{ v: '', t: 'Todos pets' }, ...Object.entries(PET_LABEL).map(([v, t]) => ({ v, t }))]} />
           <Sel value={filtros.status} onChange={(v) => setF('status', v)} opts={ALERTA_OPTS} />
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onArquivo} />
+          <button onClick={() => fileRef.current?.click()} disabled={importando} className="flex items-center gap-2 rounded-lg border border-[#e3ddcf] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#1F3A2E] hover:border-[#B8935A] disabled:opacity-60">
+            {importando ? 'Importando…' : 'Importar Excel'}
+          </button>
           <button onClick={exportarCSV} className="flex items-center gap-2 rounded-lg border border-[#e3ddcf] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#1F3A2E] hover:border-[#B8935A]">
             Exportar
           </button>

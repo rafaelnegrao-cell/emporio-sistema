@@ -293,4 +293,108 @@ router.patch(
   })
 );
 
+// ---------------------------------------------------------------------------
+// POST /api/produtos/importar — importação em lote (planilha)
+// Body: { produtos: [{ sku, nome, marca, categoria, pet, custo, preco, giro, ativo }] }
+// Upsert pelo SKU. Cria categorias que não existirem (gera slug único).
+// categoriaId é obrigatório no schema, então sem categoria cai em "Diversos".
+// ---------------------------------------------------------------------------
+const PETS_VALIDOS = new Set(['CAO', 'GATO', 'AVE', 'PEIXE', 'ROEDOR', 'REPTIL', 'OUTRO', 'MULTI']);
+
+function slugify(s) {
+  const base = String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return base || 'cat';
+}
+
+function normalizarBool(v, padrao = true) {
+  if (typeof v === 'boolean') return v;
+  if (v == null || v === '') return padrao;
+  const s = String(v).trim().toLowerCase();
+  if (['nao', 'não', 'false', '0', 'inativo', 'n', 'no'].includes(s)) return false;
+  if (['sim', 'true', '1', 'ativo', 's', 'yes'].includes(s)) return true;
+  return padrao;
+}
+
+router.post(
+  '/importar',
+  requireAuth,
+  requireRole('ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const lista = Array.isArray(req.body.produtos) ? req.body.produtos : [];
+    let criados = 0;
+    let atualizados = 0;
+    let ignorados = 0;
+    let categoriasCriadas = 0;
+
+    // Mapa categoria(nome->id) + slugs em uso, carregados uma vez.
+    const cats = await prisma.categoria.findMany({ select: { id: true, nome: true, slug: true } });
+    const catPorNome = new Map(cats.map((c) => [c.nome.trim().toLowerCase(), c.id]));
+    const slugsUsados = new Set(cats.map((c) => c.slug));
+
+    async function resolverCategoria(nome) {
+      const limpo = String(nome || 'Diversos').trim() || 'Diversos';
+      const chave = limpo.toLowerCase();
+      if (catPorNome.has(chave)) return catPorNome.get(chave);
+      let slug = slugify(limpo);
+      let n = 2;
+      while (slugsUsados.has(slug)) slug = `${slugify(limpo)}-${n++}`;
+      const nova = await prisma.categoria.create({ data: { nome: limpo, slug } });
+      catPorNome.set(chave, nova.id);
+      slugsUsados.add(slug);
+      categoriasCriadas++;
+      return nova.id;
+    }
+
+    for (const p of lista) {
+      const sku = (p.sku == null ? '' : String(p.sku)).trim();
+      if (!sku || !p.nome) {
+        ignorados++;
+        continue;
+      }
+
+      const preco = Number(p.preco ?? p.precoBase ?? 0) || 0;
+      const custoRaw = p.custo ?? p.custoMedio;
+      const custoMedio = custoRaw == null || custoRaw === '' ? null : Number(custoRaw);
+      const { margem, alertaCadastro } = avaliarCadastro(preco, custoMedio);
+
+      let pet = String(p.pet || 'OUTRO').trim().toUpperCase();
+      if (!PETS_VALIDOS.has(pet)) pet = 'OUTRO';
+
+      const categoriaId = await resolverCategoria(p.categoria);
+      const giro = parseInt(p.giro ?? p.giroMes ?? 0, 10) || 0;
+      const ativo = normalizarBool(p.ativo, true);
+
+      const dados = {
+        nome: String(p.nome).trim(),
+        marca: p.marca ? String(p.marca).trim() : null,
+        categoriaId,
+        categoriaPet: pet,
+        precoBase: preco,
+        custoMedio,
+        giroMes: giro,
+        margem,
+        alertaCadastro,
+        ativo,
+      };
+
+      const existente = await prisma.produto.findUnique({ where: { sku } });
+      if (existente) {
+        await prisma.produto.update({ where: { sku }, data: dados });
+        atualizados++;
+      } else {
+        await prisma.produto.create({ data: { sku, ...dados } });
+        criados++;
+      }
+    }
+
+    res.json({ criados, atualizados, ignorados, categoriasCriadas, total: lista.length });
+  })
+);
+
 module.exports = router;
