@@ -348,11 +348,32 @@ function Drawer({ p, salvando, onClose, onAvancar, onStatus }) {
           )}
           {!cancelado && (
             <div className="flex gap-2">
-              <button onClick={() => onStatus('CANCELADO_LOJA')} disabled={salvando} className="flex-1 rounded-lg border border-[#e9ddda] bg-white px-3 py-2 text-[12.5px] font-semibold text-[#a85a52] hover:border-[#d8a59c] disabled:opacity-50">Cancelar</button>
+              <button
+                onClick={() => { if (confirm(`Cancelar o pedido #${p.numero || p.id}?\n\nEle sai do fluxo, mas não é apagado — você pode reabri-lo depois.`)) onStatus('CANCELADO_LOJA'); }}
+                disabled={salvando}
+                className="flex-1 rounded-lg border border-[#e9ddda] bg-white px-3 py-2 text-[12.5px] font-semibold text-[#a85a52] hover:border-[#d8a59c] disabled:opacity-50"
+              >
+                Cancelar pedido
+              </button>
               {p.status === 'ENTREGUE' && (
-                <button onClick={() => onStatus('DEVOLVIDO')} disabled={salvando} className="flex-1 rounded-lg border border-[#e9ddda] bg-white px-3 py-2 text-[12.5px] font-semibold text-[#a85a52] hover:border-[#d8a59c] disabled:opacity-50">Devolvido</button>
+                <button
+                  onClick={() => { if (confirm(`Marcar o pedido #${p.numero || p.id} como devolvido?`)) onStatus('DEVOLVIDO'); }}
+                  disabled={salvando}
+                  className="flex-1 rounded-lg border border-[#e9ddda] bg-white px-3 py-2 text-[12.5px] font-semibold text-[#a85a52] hover:border-[#d8a59c] disabled:opacity-50"
+                >
+                  Devolvido
+                </button>
               )}
             </div>
+          )}
+          {cancelado && (
+            <button
+              onClick={() => { if (confirm(`Reabrir o pedido #${p.numero || p.id}?\n\nEle volta para a coluna "Recebido" e segue o fluxo normalmente.`)) onStatus('RECEBIDO'); }}
+              disabled={salvando}
+              className="w-full rounded-lg border border-[#d6c8a6] bg-[#faf6ec] px-4 py-2.5 text-[13.5px] font-semibold text-[#8a6a1f] hover:border-[#B8935A] disabled:opacity-50"
+            >
+              Reabrir pedido
+            </button>
           )}
         </div>
       </div>
