@@ -1,0 +1,18 @@
+node_modules/
+.env
+.env.local
+.env.production
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
+.idea/
+dist/
+build/
+coverage/
+
+# Prisma
+prisma/.env
+
+# Uploads locais
+public/uploads/
