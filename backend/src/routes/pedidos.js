@@ -47,6 +47,109 @@ router.get(
   })
 );
 
+// GET /api/pedidos/relatorio — agregações da tela de Relatórios.
+// Query: inicio=YYYY-MM-DD, fim=YYYY-MM-DD, lojaId? . Padrão: últimos 30 dias.
+// IMPORTANTe: precisa vir ANTES de GET /:id, senão "relatorio" cai na rota de detalhe.
+router.get(
+  '/relatorio',
+  autenticar,
+  exigirPapel('ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const { inicio, fim, lojaId } = req.query;
+    const hoje = new Date();
+    const fimD = fim ? new Date(`${fim}T23:59:59.999`) : new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 23, 59, 59, 999);
+    const inicioD = inicio ? new Date(`${inicio}T00:00:00.000`) : new Date(fimD.getTime() - 29 * 24 * 60 * 60 * 1000);
+    inicioD.setHours(0, 0, 0, 0);
+
+    const where = { deletadoEm: null, pedidoEm: { gte: inicioD, lte: fimD } };
+    if (lojaId) where.lojaId = BigInt(lojaId);
+
+    const pedidos = await prisma.pedido.findMany({
+      where,
+      take: 5000,
+      select: {
+        id: true, status: true, valorTotal: true, valorFrete: true, valorDesconto: true, pedidoEm: true,
+        entrega: { select: { aceitoEm: true, saidaEm: true, entregueEm: true, entregador: { select: { id: true, nome: true } } } },
+        itens: { select: { quantidade: true, precoTotal: true, produto: { select: { id: true, nome: true } } } },
+      },
+    });
+
+    const num = (d) => (d == null ? 0 : typeof d.toNumber === 'function' ? d.toNumber() : Number(d) || 0);
+    const CANC = new Set(['CANCELADO_CLIENTE', 'CANCELADO_LOJA', 'DEVOLVIDO']);
+    const diffMin = (a, b) => (a && b ? Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 60000) : null);
+    const media = (arr) => (arr.length ? arr.reduce((x, y) => x + y, 0) / arr.length : null);
+
+    const validos = pedidos.filter((p) => !CANC.has(p.status));
+    const cancelados = pedidos.length - validos.length;
+    const entregues = validos.filter((p) => p.status === 'ENTREGUE');
+
+    let faturamento = 0, frete = 0, desconto = 0;
+    for (const p of validos) { faturamento += num(p.valorTotal); frete += num(p.valorFrete); desconto += num(p.valorDesconto); }
+    const ticketMedio = validos.length ? faturamento / validos.length : 0;
+
+    const retiradas = [], rotas = [];
+    for (const p of validos) {
+      const e = p.entrega; if (!e) continue;
+      const r = diffMin(e.aceitoEm, e.saidaEm); if (r != null) retiradas.push(r);
+      const ro = diffMin(e.saidaEm, e.entregueEm); if (ro != null) rotas.push(ro);
+    }
+    const dentroSla = retiradas.length ? (retiradas.filter((m) => m <= 15).length / retiradas.length) * 100 : null;
+
+    const mapEnt = new Map();
+    for (const p of entregues) {
+      const e = p.entrega; if (!e || !e.entregador) continue;
+      const id = String(e.entregador.id);
+      if (!mapEnt.has(id)) mapEnt.set(id, { id, nome: e.entregador.nome, entregas: 0, ret: [], rota: [] });
+      const o = mapEnt.get(id);
+      o.entregas += 1;
+      const r = diffMin(e.aceitoEm, e.saidaEm); if (r != null) o.ret.push(r);
+      const ro = diffMin(e.saidaEm, e.entregueEm); if (ro != null) o.rota.push(ro);
+    }
+    const entregadores = [...mapEnt.values()]
+      .map((o) => ({ id: o.id, nome: o.nome, entregas: o.entregas, retiradaMedMin: media(o.ret), rotaMedMin: media(o.rota) }))
+      .sort((a, b) => b.entregas - a.entregas);
+
+    const mapProd = new Map();
+    for (const p of validos) {
+      for (const it of p.itens || []) {
+        if (!it.produto) continue;
+        const id = String(it.produto.id);
+        if (!mapProd.has(id)) mapProd.set(id, { id, nome: it.produto.nome, qtd: 0, receita: 0 });
+        const o = mapProd.get(id);
+        o.qtd += it.quantidade || 0;
+        o.receita += num(it.precoTotal);
+      }
+    }
+    const prods = [...mapProd.values()].sort((a, b) => b.receita - a.receita);
+    const totalRec = prods.reduce((x, y) => x + y.receita, 0);
+    let acum = 0;
+    const abc = prods.map((o) => {
+      const pct = totalRec ? (o.receita / totalRec) * 100 : 0;
+      acum += pct;
+      const classe = acum <= 80 ? 'A' : acum <= 95 ? 'B' : 'C';
+      return { id: o.id, nome: o.nome, qtd: o.qtd, receita: o.receita, pct, acumPct: acum, classe };
+    });
+
+    const mapDia = new Map();
+    for (const p of validos) {
+      const dia = new Date(p.pedidoEm).toISOString().slice(0, 10);
+      if (!mapDia.has(dia)) mapDia.set(dia, { dia, pedidos: 0, faturamento: 0 });
+      const o = mapDia.get(dia);
+      o.pedidos += 1; o.faturamento += num(p.valorTotal);
+    }
+    const porDia = [...mapDia.values()].sort((a, b) => a.dia.localeCompare(b.dia));
+
+    res.json({
+      periodo: { inicio: inicioD.toISOString().slice(0, 10), fim: fimD.toISOString().slice(0, 10) },
+      resumo: { pedidos: validos.length, entregues: entregues.length, cancelados, faturamento, frete, desconto, ticketMedio },
+      tempos: { retiradaMedMin: media(retiradas), rotaMedMin: media(rotas), dentroSlaPct: dentroSla, amostraRetirada: retiradas.length, amostraRota: rotas.length },
+      entregadores,
+      abc,
+      porDia,
+    });
+  })
+);
+
 // GET /api/pedidos/:id — detalhe completo
 router.get(
   '/:id',
