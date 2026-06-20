@@ -11,17 +11,18 @@ const router = express.Router();
 const cotacaoSchema = z.object({
   cep: z.string().min(8),
   bairro: z.string().optional().default(''),
+  cidade: z.string().optional().default(''),
   valorPedido: z.number().nonnegative(),
   lojaId: z.union([z.string(), z.number()]).optional()
 });
 
 router.post('/cotar', asyncHandler(async (req, res) => {
-  const { cep, bairro, valorPedido, lojaId } = cotacaoSchema.parse(req.body);
+  const { cep, bairro, cidade, valorPedido, lojaId } = cotacaoSchema.parse(req.body);
 
   // Se loja específica foi passada, cota só dela
   if (lojaId) {
     const cotacao = await calcularFrete({
-      lojaId: BigInt(lojaId), cep, bairro, valorPedido
+      lojaId: BigInt(lojaId), cep, bairro, cidade, valorPedido
     });
     return res.json(serializarBigInt(cotacao));
   }
@@ -33,7 +34,7 @@ router.post('/cotar', asyncHandler(async (req, res) => {
 
   const cotacoes = await Promise.all(
     lojas.map(async (loja) => {
-      const c = await calcularFrete({ lojaId: loja.id, cep, bairro, valorPedido });
+      const c = await calcularFrete({ lojaId: loja.id, cep, bairro, cidade, valorPedido });
       return { lojaId: loja.id.toString(), lojaNome: loja.nome, ...c };
     })
   );
