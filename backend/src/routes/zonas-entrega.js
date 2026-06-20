@@ -24,6 +24,7 @@ const zonaSchema = z.object({
   lojaId: z.union([z.string(), z.number()]).transform(v => BigInt(v)),
   nome: z.string().min(2),
   bairros: z.array(z.string()).optional().default([]),
+  cidades: z.array(z.string()).optional().default([]),
   cepInicio: z.string().optional(),
   cepFim: z.string().optional(),
   taxaFrete: z.number().nonnegative(),
