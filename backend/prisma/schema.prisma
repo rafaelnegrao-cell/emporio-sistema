@@ -295,6 +295,7 @@ model ZonaEntrega {
   lojaId            BigInt
   nome              String
   bairros           String[]
+  cidades           String[]
   cepInicio         String?
   cepFim            String?
   taxaFrete         Decimal   @db.Decimal(8, 2)
