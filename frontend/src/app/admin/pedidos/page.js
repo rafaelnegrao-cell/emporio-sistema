@@ -17,7 +17,8 @@ const FLUXO = COLUNAS.map((c) => c.key);
 function slaInfo(aceitoEm) {
   if (!aceitoEm) return null;
   const min = Math.max(0, Math.floor((Date.now() - new Date(aceitoEm).getTime()) / 60000));
-  return { min, estourou: min >= 15 };
+  const tier = min >= 15 ? 'estourou' : min >= 10 ? 'atencao' : 'ok';
+  return { min, tier };
 }
 const CANCELADOS = ['CANCELADO_CLIENTE', 'CANCELADO_LOJA', 'DEVOLVIDO'];
 
@@ -97,6 +98,17 @@ export default function PedidosPage() {
       // RASCUNHO e qualquer outro status não operacional ficam de fora do quadro
     }
     return m;
+  }, [pedidos]);
+
+  const atrasos = useMemo(() => {
+    let estourou = 0, atencao = 0;
+    for (const p of pedidos) {
+      if (p.status === 'SEPARADO' && p.entrega && p.entrega.aceitoEm) {
+        const min = Math.floor((Date.now() - new Date(p.entrega.aceitoEm).getTime()) / 60000);
+        if (min >= 15) estourou++; else if (min >= 10) atencao++;
+      }
+    }
+    return { estourou, atencao };
   }, [pedidos]);
 
   const kpis = useMemo(() => {
@@ -223,6 +235,15 @@ export default function PedidosPage() {
           </div>
         )}
 
+        {(atrasos.estourou > 0 || atrasos.atencao > 0) && (
+          <div className={`mb-4 flex items-center gap-2 rounded-lg border px-4 py-3 text-[13px] font-semibold ${atrasos.estourou > 0 ? 'border-[#e0a3a0] bg-[#fdf3f2] text-[#b23b3b]' : 'border-[#e6cf94] bg-[#fdf8ec] text-[#9a6a1f]'}`}>
+            <span>⏱</span>
+            {atrasos.estourou > 0
+              ? `${atrasos.estourou} entrega(s) passaram dos 15 min aguardando retirada — verifique com o entregador.`
+              : `${atrasos.atencao} entrega(s) há mais de 10 min aguardando retirada.`}
+          </div>
+        )}
+
         {/* Kanban */}
         <div className="flex gap-3.5 overflow-x-auto pb-3">
           {COLUNAS.map((col) => {
@@ -317,6 +338,10 @@ function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDireci
   const direcionadoPendente = !!(ent && ent.atribuidaEm && !ent.aceitoEm);
   const noSeparado = col === 'SEPARADO';
   const sla = noSeparado && aceito ? slaInfo(ent.aceitoEm) : null;
+  const tier = sla ? sla.tier : null;
+  const baseCls = muted ? 'border-[#e9ddda] bg-white opacity-80' : 'border-[#e3ddcf] bg-white';
+  const cartaoCls = tier === 'estourou' ? 'border-[#e0a3a0] bg-[#fdf3f2]' : tier === 'atencao' ? 'border-[#e6cf94] bg-[#fdf8ec]' : baseCls;
+  const badgeCls = tier === 'estourou' ? 'bg-[#fbe3e0] text-[#b23b3b]' : tier === 'atencao' ? 'bg-[#fbf0d6] text-[#9a6a1f]' : 'bg-[#eef4ef] text-[#5b6b5f]';
   const stop = (e) => e.stopPropagation();
   const selCls = 'mt-2 w-full rounded-lg border border-[#e3ddcf] bg-[#F4F1EA] px-2 py-1.5 text-[11.5px] text-[#1F3A2E] outline-none';
   return (
@@ -324,7 +349,7 @@ function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDireci
       draggable={!!onDragStart}
       onDragStart={onDragStart}
       onClick={onClick}
-      className={`cursor-pointer rounded-lg border bg-white p-3 transition hover:border-[#B8935A] ${muted ? 'border-[#e9ddda] opacity-80' : 'border-[#e3ddcf]'}`}
+      className={`cursor-pointer rounded-lg border p-3 transition hover:border-[#B8935A] ${cartaoCls}`}
     >
       <div className="flex items-center justify-between">
         <span className="text-[12px] font-bold text-[#1F3A2E]">#{p.numero || p.id}</span>
@@ -353,9 +378,11 @@ function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDireci
                   <span className="truncate">{nome} · indo retirar</span>
                 </span>
                 {sla && (
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${sla.estourou ? 'bg-[#fbe3e0] text-[#b23b3b]' : 'bg-[#eef4ef] text-[#5b6b5f]'}`}>⏱ {sla.min} min</span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${badgeCls}`}>⏱ {sla.min} min</span>
                 )}
               </div>
+              {tier === 'estourou' && <div className="mt-1 text-[10.5px] font-semibold text-[#b23b3b]">Passou dos 15 min para retirar</div>}
+              {tier === 'atencao' && <div className="mt-1 text-[10.5px] font-semibold text-[#9a6a1f]">Aguardando retirada há {sla.min} min</div>}
               <button
                 onClick={() => onSaiuLoja(p.id)}
                 className="mt-2 w-full rounded-lg bg-[#1F3A2E] px-3 py-1.5 text-[12px] font-semibold text-[#F4F1EA] hover:bg-[#16291f]"
