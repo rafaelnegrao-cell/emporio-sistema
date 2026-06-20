@@ -92,4 +92,64 @@ router.patch(
   })
 );
 
+// ─────────────────────────────────────────────────────────────
+// App do Entregador — rotas do próprio entregador logado
+// ─────────────────────────────────────────────────────────────
+
+// GET /api/entregadores/me/entregas — entregas atribuídas ao entregador logado
+router.get(
+  '/me/entregas',
+  autenticar,
+  exigirPapel('ENTREGADOR', 'ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const meuId = BigInt(req.usuario.id);
+    const pedidos = await prisma.pedido.findMany({
+      where: {
+        deletadoEm: null,
+        entrega: { entregadorId: meuId },
+        status: { in: ['ACEITO', 'EM_SEPARACAO', 'SEPARADO', 'EM_ROTA', 'ENTREGUE'] },
+      },
+      orderBy: { pedidoEm: 'desc' },
+      take: 60,
+      include: {
+        cliente: { select: { nome: true, whatsapp: true } },
+        loja: { select: { nome: true } },
+        enderecoEntrega: true,
+        itens: { select: { quantidade: true, produto: { select: { nome: true } } } },
+        entrega: { select: { saidaEm: true, entregueEm: true } },
+      },
+    });
+    res.json(serializarBigInt({ data: pedidos }));
+  })
+);
+
+// PATCH /api/entregadores/me/entregas/:pedidoId/status — marca saída/entrega (só nos pedidos do próprio entregador)
+router.patch(
+  '/me/entregas/:pedidoId/status',
+  autenticar,
+  exigirPapel('ENTREGADOR', 'ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const pedidoId = BigInt(req.params.pedidoId);
+    const meuId = BigInt(req.usuario.id);
+    const status = req.body && req.body.status;
+    if (!['EM_ROTA', 'ENTREGUE'].includes(status)) {
+      return res.status(400).json({ erro: 'Status inválido. Use EM_ROTA ou ENTREGUE.' });
+    }
+    const entrega = await prisma.entrega.findUnique({ where: { pedidoId } });
+    if (!entrega) return res.status(404).json({ erro: 'Entrega não encontrada para este pedido.' });
+    const ehDono = entrega.entregadorId === meuId;
+    const ehGestor = req.usuario.papel === 'ADMIN' || req.usuario.papel === 'OPERADOR';
+    if (!ehDono && !ehGestor) return res.status(403).json({ erro: 'Esta entrega não está atribuída a você.' });
+
+    await prisma.pedido.update({ where: { id: pedidoId }, data: { status } });
+    await prisma.entrega.update({
+      where: { pedidoId },
+      data: status === 'EM_ROTA'
+        ? { saidaEm: entrega.saidaEm || new Date() }
+        : { entregueEm: new Date(), saidaEm: entrega.saidaEm || new Date() },
+    });
+    res.json({ ok: true, status });
+  })
+);
+
 module.exports = router;
