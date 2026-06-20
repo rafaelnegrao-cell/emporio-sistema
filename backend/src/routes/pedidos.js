@@ -163,6 +163,7 @@ router.get(
         enderecoEntrega: true,
         itens: { include: { produto: { select: { id: true, nome: true, sku: true } } } },
         entrega: { include: { entregador: { select: { id: true, nome: true, telefone: true } } } },
+        historicoStatus: { orderBy: { criadoEm: 'asc' }, include: { usuario: { select: { nome: true } } } },
       },
     });
     if (!pedido) return res.status(404).json({ erro: 'Pedido não encontrado' });
@@ -176,15 +177,15 @@ router.patch(
   autenticar,
   exigirPapel('ADMIN', 'OPERADOR'),
   asyncHandler(async (req, res) => {
-    const { status, entregadorId } = req.body;
+    const { status, entregadorId, motivo } = req.body;
     if (!status) return res.status(400).json({ erro: 'status é obrigatório' });
     const id = BigInt(req.params.id);
 
+    const atual = await prisma.pedido.findUnique({ where: { id }, select: { status: true, separadoEm: true } });
+    const statusAnterior = atual ? atual.status : null;
+
     const dataPedido = { status };
-    if (status === 'SEPARADO') {
-      const atual = await prisma.pedido.findUnique({ where: { id }, select: { separadoEm: true } });
-      if (atual && !atual.separadoEm) dataPedido.separadoEm = new Date();
-    }
+    if (status === 'SEPARADO' && atual && !atual.separadoEm) dataPedido.separadoEm = new Date();
     const pedido = await prisma.pedido.update({ where: { id }, data: dataPedido });
 
     // Modo direcionado: ao separar, manda pra UM entregador (fica aguardando o aceite dele).
@@ -207,6 +208,21 @@ router.patch(
             : { entregueEm: new Date(), saidaEm: entrega.saidaEm || new Date() },
         });
       }
+    }
+
+    // Histórico de status (não derruba a operação se falhar)
+    if (statusAnterior !== status) {
+      try {
+        await prisma.statusPedidoHistorico.create({
+          data: {
+            pedidoId: id,
+            statusAnterior,
+            statusNovo: status,
+            usuarioId: req.usuario && req.usuario.id ? BigInt(req.usuario.id) : null,
+            motivo: motivo || null,
+          },
+        });
+      } catch (e) { /* histórico é best-effort */ }
     }
     res.json(serializarBigInt(pedido));
   })

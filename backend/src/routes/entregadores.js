@@ -150,6 +150,11 @@ router.patch(
       where: { pedidoId },
       data: { entregueEm: new Date(), saidaEm: entrega.saidaEm || new Date() },
     });
+    try {
+      await prisma.statusPedidoHistorico.create({
+        data: { pedidoId, statusAnterior: 'EM_ROTA', statusNovo: 'ENTREGUE', usuarioId: meuId, motivo: 'Confirmada pelo entregador' },
+      });
+    } catch (e) { /* histórico é best-effort */ }
     res.json({ ok: true, status: 'ENTREGUE' });
   })
 );
