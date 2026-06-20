@@ -100,6 +100,14 @@ export default function ZonasPage() {
     await api.del(`/api/zonas-entrega/${z.id}`); carregar();
   };
 
+  const limparLoja = async () => {
+    const ativas = zonas.filter((z) => z.ativa);
+    if (!ativas.length) return;
+    if (!confirm(`Remover todas as ${ativas.length} zonas de ${lojaNome}? Você pode reimportar a planilha em seguida.`)) return;
+    for (const z of ativas) { try { await api.del(`/api/zonas-entrega/${z.id}`); } catch (_) {} }
+    carregar();
+  };
+
   const onArquivo = async (e) => {
     const file = e.target.files?.[0]; e.target.value = '';
     if (!file) return;
@@ -158,6 +166,7 @@ export default function ZonasPage() {
           <select value={lojaId} onChange={(e) => setLojaId(e.target.value)} className="rounded-lg border border-[#e3ddcf] bg-white px-3 py-2.5 text-[13.5px] outline-none focus:border-[#B8935A]">
             {lojas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
           </select>
+          <button onClick={limparLoja} className="rounded-lg border border-[#e3ddcf] bg-white px-3 py-2.5 text-[13px] font-semibold text-[#a85a52] hover:border-[#a85a52]" title="Remover todas as zonas desta loja">Limpar loja</button>
           <label className="cursor-pointer rounded-lg border border-[#e3ddcf] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#1F3A2E] hover:border-[#B8935A]" title="Importar planilha de zonas">
             Importar planilha
             <input type="file" accept=".xlsx,.xls" className="hidden" onChange={onArquivo} />
