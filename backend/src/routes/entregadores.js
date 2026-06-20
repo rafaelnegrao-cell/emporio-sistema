@@ -152,4 +152,46 @@ router.patch(
   })
 );
 
+// GET /api/entregadores/me/disponiveis — pedidos SEPARADO ainda sem entregador (oferta a todos)
+router.get(
+  '/me/disponiveis',
+  autenticar,
+  exigirPapel('ENTREGADOR', 'ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const pedidos = await prisma.pedido.findMany({
+      where: { status: 'SEPARADO', deletadoEm: null, entrega: { is: null } },
+      orderBy: { pedidoEm: 'asc' },
+      take: 40,
+      include: {
+        cliente: { select: { nome: true, whatsapp: true } },
+        loja: { select: { nome: true } },
+        enderecoEntrega: true,
+        itens: { select: { quantidade: true, produto: { select: { nome: true } } } },
+      },
+    });
+    res.json(serializarBigInt({ data: pedidos }));
+  })
+);
+
+// POST /api/entregadores/me/entregas/:pedidoId/aceitar — entregador assume a entrega (quem aceita primeiro leva)
+router.post(
+  '/me/entregas/:pedidoId/aceitar',
+  autenticar,
+  exigirPapel('ENTREGADOR', 'ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const pedidoId = BigInt(req.params.pedidoId);
+    const meuId = BigInt(req.usuario.id);
+    const pedido = await prisma.pedido.findUnique({ where: { id: pedidoId }, select: { id: true, status: true, deletadoEm: true } });
+    if (!pedido || pedido.deletadoEm) return res.status(404).json({ erro: 'Pedido não encontrado.' });
+    if (pedido.status !== 'SEPARADO') return res.status(409).json({ erro: 'Este pedido não está mais disponível.' });
+    try {
+      await prisma.entrega.create({ data: { pedidoId, entregadorId: meuId } });
+      res.status(201).json({ ok: true });
+    } catch (e) {
+      if (e && e.code === 'P2002') return res.status(409).json({ erro: 'Esta entrega já foi aceita por outro entregador.' });
+      throw e;
+    }
+  })
+);
+
 module.exports = router;
