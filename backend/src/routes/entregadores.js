@@ -217,7 +217,7 @@ router.get(
       where: {
         status: 'SEPARADO',
         deletadoEm: null,
-        entrega: { is: { entregadorId: meuId, aceitoEm: null } },
+        entrega: { entregadorId: meuId, aceitoEm: null },
       },
       orderBy: { pedidoEm: 'asc' },
       take: 40,
