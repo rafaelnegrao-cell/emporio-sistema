@@ -48,6 +48,7 @@ export default function PedidosPage() {
   const [hover, setHover] = useState(null); // coluna em hover no drop
   const [detalhe, setDetalhe] = useState(null); // pedido aberto no painel
   const [novo, setNovo] = useState(false);
+  const [entregadores, setEntregadores] = useState([]);
   const [salvando, setSalvando] = useState(false);
 
   const carregar = useCallback(async () => {
@@ -70,6 +71,11 @@ export default function PedidosPage() {
       const lista = Array.isArray(r) ? r : r?.data || [];
       setLojas(lista);
     }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    api.get('/api/entregadores', { ativo: 'true' })
+      .then((r) => setEntregadores(Array.isArray(r?.data) ? r.data : []))
+      .catch(() => {});
   }, []);
 
   const porColuna = useMemo(() => {
@@ -112,12 +118,26 @@ export default function PedidosPage() {
   }, [pedidos, carregar]);
 
   const abrirDetalhe = async (p) => {
-    setDetalhe(p); // mostra o que já tem na hora
+    setDetalhe(p); // mostra o resumo na hora
     try {
       const full = await api.get(`/api/pedidos/${p.id}`);
       setDetalhe(full && full.id ? full : p);
     } catch (_) { /* mantém o resumo */ }
   };
+
+  // Atribui (ou remove) o entregador do pedido, com atualização otimista.
+  const atribuirEntregador = useCallback(async (id, entregadorId) => {
+    const ent = entregadores.find((e) => String(e.id) === String(entregadorId));
+    const novaEntrega = entregadorId ? { entregadorId, entregador: ent ? { id: ent.id, nome: ent.nome, telefone: ent.telefone } : null } : null;
+    setPedidos((arr) => arr.map((p) => (String(p.id) === String(id) ? { ...p, entrega: novaEntrega } : p)));
+    setDetalhe((d) => (d && String(d.id) === String(id) ? { ...d, entrega: novaEntrega } : d));
+    try {
+      await api.patch(`/api/pedidos/${id}/entregador`, { entregadorId: entregadorId || null });
+    } catch (e) {
+      alert('Não consegui atribuir o entregador: ' + e.message);
+      carregar();
+    }
+  }, [entregadores, carregar]);
 
   const proximo = (status) => {
     const i = FLUXO.indexOf(status);
@@ -236,9 +256,11 @@ export default function PedidosPage() {
         <Drawer
           p={detalhe}
           salvando={salvando}
+          entregadores={entregadores}
           onClose={() => setDetalhe(null)}
           onAvancar={() => { const n = proximo(detalhe.status); if (n) mudarStatus(detalhe.id, n); }}
           onStatus={(s) => mudarStatus(detalhe.id, s)}
+          onEntregador={(eid) => atribuirEntregador(detalhe.id, eid)}
         />
       )}
 
@@ -282,11 +304,17 @@ function Card({ p, onDragStart, onClick, muted }) {
         <span className="truncate text-[11px] text-[#8a8678]">{p.loja?.nome || ''}{nItens != null ? ` · ${nItens} item(s)` : ''}</span>
         <span className="text-[12.5px] font-semibold text-[#1F3A2E]">{BRL(p.valorTotal)}</span>
       </div>
+      {p.entrega?.entregador?.nome && (
+        <div className="mt-1.5 flex items-center gap-1 border-t border-[#f0ece0] pt-1.5 text-[11px] text-[#3f7d5b]">
+          <span className="h-[6px] w-[6px] rounded-full bg-[#3f7d5b]" />
+          {p.entrega.entregador.nome}
+        </div>
+      )}
     </div>
   );
 }
 
-function Drawer({ p, salvando, onClose, onAvancar, onStatus }) {
+function Drawer({ p, salvando, entregadores = [], onClose, onAvancar, onStatus, onEntregador }) {
   const itens = Array.isArray(p.itens) ? p.itens : [];
   const podeAvancar = FLUXO.indexOf(p.status) >= 0 && p.status !== 'ENTREGUE';
   const cancelado = CANCELADOS.includes(p.status);
@@ -310,6 +338,22 @@ function Drawer({ p, salvando, onClose, onAvancar, onStatus }) {
           {p.enderecoEntrega && (
             <Linha lab="Entrega" val={[p.enderecoEntrega.logradouro, p.enderecoEntrega.numero, p.enderecoEntrega.bairro, p.enderecoEntrega.cidade].filter(Boolean).join(', ')} />
           )}
+
+          {/* Entregador */}
+          <div className="mt-3">
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-[#8a8678]">Entregador</label>
+            <select
+              value={p.entrega?.entregador?.id ? String(p.entrega.entregador.id) : ''}
+              onChange={(e) => onEntregador && onEntregador(e.target.value)}
+              disabled={salvando}
+              className="w-full rounded-lg border border-[#e3ddcf] px-3 py-2 text-[13.5px] outline-none focus:border-[#B8935A] disabled:opacity-60"
+            >
+              <option value="">— Não atribuído —</option>
+              {entregadores.map((en) => (
+                <option key={en.id} value={en.id}>{en.nome}{en.telefone ? ` · ${en.telefone}` : ''}</option>
+              ))}
+            </select>
+          </div>
 
           {itens.length > 0 && (
             <div className="mt-4">
