@@ -42,18 +42,19 @@ export default function EntregadorPage() {
 
   const carregar = useCallback(async (silent) => {
     if (!silent) setLoading(true);
+    const safe = (pr) => pr.then((r) => ({ ok: true, r })).catch((e) => ({ ok: false, e }));
     try {
       const [dir, d, e] = await Promise.all([
-        api.get('/api/entregadores/me/direcionadas'),
-        api.get('/api/entregadores/me/disponiveis'),
-        api.get('/api/entregadores/me/entregas'),
+        safe(api.get('/api/entregadores/me/direcionadas')),
+        safe(api.get('/api/entregadores/me/disponiveis')),
+        safe(api.get('/api/entregadores/me/entregas')),
       ]);
-      setDirecionadas(Array.isArray(dir?.data) ? dir.data : []);
-      setDisponiveis(Array.isArray(d?.data) ? d.data : []);
-      setEntregas(Array.isArray(e?.data) ? e.data : []);
-      setErro(null);
-    } catch (err) { if (!silent) setErro(err.message); }
-    finally { if (!silent) setLoading(false); }
+      if (dir.ok) setDirecionadas(Array.isArray(dir.r && dir.r.data) ? dir.r.data : []);
+      if (d.ok) setDisponiveis(Array.isArray(d.r && d.r.data) ? d.r.data : []);
+      if (e.ok) setEntregas(Array.isArray(e.r && e.r.data) ? e.r.data : []);
+      const falhou = [dir, d, e].find((x) => !x.ok);
+      if (!silent) setErro(falhou ? falhou.e.message : null);
+    } finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -240,7 +241,8 @@ function Card({ e, modo, acao, onAceitar, onStatus }) {
           {soDig(e.cliente?.whatsapp) && (
             <a href={`https://wa.me/55${soDig(e.cliente.whatsapp)}`} target="_blank" rel="noreferrer" className="rounded-lg border border-[#e3ddcf] p-2 text-[#1F3A2E]" title="WhatsApp"><Phone size={16} /></a>
           )}
-          <a href={`https://www.google.com/maps/search/?api=1&query=${mapsQuery}`} target="_blank" rel="noreferrer" className="rounded-lg border border-[#e3ddcf] p-2 text-[#1F3A2E]" title="Abrir no mapa"><Navigation size={16} /></a>
+          <a href={`https://www.waze.com/ul?q=${mapsQuery}&navigate=yes`} target="_blank" rel="noreferrer" className="rounded-lg border border-[#e3ddcf] px-2.5 py-2 text-[11.5px] font-semibold text-[#33a7d8]" title="Abrir no Waze">Waze</a>
+          <a href={`https://www.google.com/maps/search/?api=1&query=${mapsQuery}`} target="_blank" rel="noreferrer" className="rounded-lg border border-[#e3ddcf] px-2.5 py-2 text-[11.5px] font-semibold text-[#1F3A2E]" title="Abrir no Google Maps">Maps</a>
         </div>
       </div>
 
