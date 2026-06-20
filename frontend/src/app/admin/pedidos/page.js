@@ -443,60 +443,128 @@ const CANAL_OPTS = [
   { v: 'OUTRO', t: 'Outro' },
 ];
 
+const PET_OPTS = [
+  { v: '', t: 'Todos os pets' },
+  { v: 'CAO', t: 'Cão' },
+  { v: 'GATO', t: 'Gato' },
+  { v: 'AVE', t: 'Ave' },
+  { v: 'PEIXE', t: 'Peixe' },
+  { v: 'ROEDOR', t: 'Roedor' },
+  { v: 'REPTIL', t: 'Réptil' },
+  { v: 'OUTRO', t: 'Outro' },
+  { v: 'MULTI', t: 'Multi' },
+];
+
+const soDig = (s) => String(s || '').replace(/\D/g, '');
+
 function NovoPedido({ lojas, onClose, onCreated }) {
+  // Cliente (identificação por CPF)
+  const [cpf, setCpf] = useState('');
   const [cliente, setCliente] = useState(null);
-  const [cBusca, setCBusca] = useState('');
-  const [cRes, setCRes] = useState([]);
-  const [enderecos, setEnderecos] = useState([]);
-  const [endSel, setEndSel] = useState('novo'); // id do endereço ou 'novo'
+  const [buscando, setBuscando] = useState(false);
+  const [buscou, setBuscou] = useState(false);
+  const [porNome, setPorNome] = useState(false);
+  const [nomeBusca, setNomeBusca] = useState('');
+  const [nomeRes, setNomeRes] = useState([]);
+  // cadastro novo
+  const [nome, setNome] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  // endereço
   const [end, setEnd] = useState({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: 'PR' });
+  const [enderecos, setEnderecos] = useState([]);
+  const [endSel, setEndSel] = useState('novo');
+  const [cepBuscando, setCepBuscando] = useState(false);
+  // pedido
   const [lojaId, setLojaId] = useState('');
   const [canal, setCanal] = useState('WHATSAPP');
-  const [itens, setItens] = useState([]); // {produtoId, nome, preco, quantidade}
+  const [itens, setItens] = useState([]);
+  // filtros + busca de produto
+  const [categorias, setCategorias] = useState([]);
+  const [fCat, setFCat] = useState('');
+  const [fPet, setFPet] = useState('');
   const [pBusca, setPBusca] = useState('');
   const [pRes, setPRes] = useState([]);
   const [frete, setFrete] = useState('');
   const [desconto, setDesconto] = useState('');
   const [criando, setCriando] = useState(false);
   const [erro, setErro] = useState(null);
-  const tc = useState(() => ({ t: null }))[0];
   const tp = useState(() => ({ t: null }))[0];
+  const tn = useState(() => ({ t: null }))[0];
 
   useEffect(() => { if (lojas.length === 1) setLojaId(String(lojas[0].id)); }, [lojas]);
+  useEffect(() => {
+    api.get('/api/produtos', { perPage: 1 }).then((r) => setCategorias(r?.facets?.categorias || [])).catch(() => {});
+  }, []);
 
-  const buscarClientes = (txt) => {
-    setCBusca(txt);
-    clearTimeout(tc.t);
-    if (txt.trim().length < 2) { setCRes([]); return; }
-    tc.t = setTimeout(async () => {
-      try { const r = await api.get('/api/clientes', { q: txt, perPage: 8 }); setCRes(Array.isArray(r?.data) ? r.data : []); }
-      catch (_) { setCRes([]); }
-    }, 250);
+  const buscarCpf = async () => {
+    const d = soDig(cpf);
+    if (d.length < 11) { setErro('Informe um CPF válido (11 dígitos).'); return; }
+    setErro(null); setBuscando(true);
+    try {
+      const r = await api.get('/api/clientes', { q: d, perPage: 10 });
+      const lista = Array.isArray(r?.data) ? r.data : [];
+      const achado = lista.find((c) => soDig(c.cpf) === d);
+      if (achado) await selecionarCliente(achado);
+      else { setCliente(null); setBuscou(true); }
+    } catch (e) { setErro(e.message); }
+    finally { setBuscando(false); }
   };
 
-  const escolherCliente = async (c) => {
-    setCliente(c); setCRes([]); setCBusca('');
+  const selecionarCliente = async (c) => {
+    setCliente(c); setBuscou(true); setPorNome(false); setNomeRes([]); setErro(null);
+    if (c.cpf) setCpf(c.cpf);
     setEnderecos([]); setEndSel('novo');
     try {
       const det = await api.get(`/api/clientes/${c.id}`);
       const eds = Array.isArray(det?.enderecos) ? det.enderecos : [];
       setEnderecos(eds);
-      if (eds.length) {
-        const principal = eds.find((e) => e.principal) || eds[0];
-        setEndSel(String(principal.id));
-      }
-    } catch (_) { /* segue com endereço novo */ }
+      if (eds.length) { const p = eds.find((e) => e.principal) || eds[0]; setEndSel(String(p.id)); }
+    } catch (_) { /* segue sem endereço salvo */ }
+  };
+
+  const trocarCliente = () => {
+    setCliente(null); setBuscou(false); setCpf(''); setNome(''); setWhatsapp('');
+    setEnderecos([]); setEndSel('novo'); setPorNome(false); setNomeBusca(''); setNomeRes([]);
+    setEnd({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: 'PR' });
+  };
+
+  const buscarNome = (txt) => {
+    setNomeBusca(txt); clearTimeout(tn.t);
+    if (txt.trim().length < 2) { setNomeRes([]); return; }
+    tn.t = setTimeout(async () => {
+      try { const r = await api.get('/api/clientes', { q: txt, perPage: 8 }); setNomeRes(Array.isArray(r?.data) ? r.data : []); }
+      catch (_) { setNomeRes([]); }
+    }, 250);
+  };
+
+  const buscarCep = async (cepRaw) => {
+    setEnd((e) => ({ ...e, cep: cepRaw }));
+    const d = soDig(cepRaw);
+    if (d.length !== 8) return;
+    setCepBuscando(true);
+    try {
+      const resp = await fetch(`https://viacep.com.br/ws/${d}/json/`);
+      const j = await resp.json();
+      if (!j.erro) setEnd((e) => ({ ...e, cep: d, logradouro: j.logradouro || e.logradouro, bairro: j.bairro || e.bairro, cidade: j.localidade || e.cidade, uf: j.uf || e.uf }));
+    } catch (_) { /* mantém o que foi digitado */ }
+    finally { setCepBuscando(false); }
   };
 
   const buscarProdutos = (txt) => {
-    setPBusca(txt);
-    clearTimeout(tp.t);
-    if (txt.trim().length < 2) { setPRes([]); return; }
+    setPBusca(txt); clearTimeout(tp.t);
+    if (txt.trim().length < 2 && !fCat && !fPet) { setPRes([]); return; }
     tp.t = setTimeout(async () => {
-      try { const r = await api.get('/api/produtos', { q: txt, perPage: 8 }); setPRes(Array.isArray(r?.data) ? r.data : []); }
-      catch (_) { setPRes([]); }
-    }, 250);
+      try {
+        const r = await api.get('/api/produtos', { q: txt, categoriaId: fCat || undefined, pet: fPet || undefined, perPage: 10, sort: 'giro', order: 'desc' });
+        setPRes(Array.isArray(r?.data) ? r.data : []);
+      } catch (_) { setPRes([]); }
+    }, 200);
   };
+  useEffect(() => {
+    if (pBusca.trim().length >= 2 || fCat || fPet) buscarProdutos(pBusca);
+    else setPRes([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fCat, fPet]);
 
   const addItem = (p) => {
     setPRes([]); setPBusca('');
@@ -511,18 +579,28 @@ function NovoPedido({ lojas, onClose, onCreated }) {
 
   const subtotal = itens.reduce((s, i) => s + i.preco * i.quantidade, 0);
   const total = subtotal + (Number(frete) || 0) - (Number(desconto) || 0);
-  const usaEndNovo = endSel === 'novo' || !enderecos.length;
+  const usaEndNovo = !cliente || endSel === 'novo' || !enderecos.length;
 
   const criar = async () => {
     setErro(null);
-    if (!cliente) return setErro('Selecione o cliente.');
+    let clienteId = cliente?.id;
+    if (!clienteId) {
+      if (!nome.trim()) return setErro('Informe o nome do cliente.');
+      if (soDig(cpf).length < 11) return setErro('Informe o CPF (11 dígitos).');
+      if (soDig(whatsapp).length < 10) return setErro('Informe o WhatsApp do cliente.');
+    }
     if (!lojaId) return setErro('Selecione a loja.');
     if (!itens.length) return setErro('Adicione ao menos um item.');
-    if (usaEndNovo && !end.logradouro && !end.bairro && !end.cidade) return setErro('Informe o endereço de entrega.');
+    if (usaEndNovo && !end.logradouro && !end.bairro && !end.cidade) return setErro('Informe o endereço de entrega (digite o CEP).');
     setCriando(true);
     try {
+      if (!clienteId) {
+        const novo = await api.post('/api/clientes', { nome, cpf: soDig(cpf), whatsapp: soDig(whatsapp) });
+        clienteId = novo.id;
+        if (!clienteId) throw new Error('Falha ao cadastrar o cliente.');
+      }
       await api.post('/api/pedidos', {
-        clienteId: cliente.id,
+        clienteId,
         lojaId,
         canalOrigem: canal,
         enderecoEntregaId: usaEndNovo ? undefined : endSel,
@@ -532,10 +610,7 @@ function NovoPedido({ lojas, onClose, onCreated }) {
         valorDesconto: Number(desconto) || 0,
       });
       onCreated();
-    } catch (e) {
-      setErro(e.message);
-      setCriando(false);
-    }
+    } catch (e) { setErro(e.message); setCriando(false); }
   };
 
   const inp = 'w-full rounded-lg border border-[#e3ddcf] px-3 py-2 text-[13.5px] outline-none focus:border-[#B8935A]';
@@ -553,23 +628,42 @@ function NovoPedido({ lojas, onClose, onCreated }) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {/* Cliente */}
-          <label className={lab}>Cliente</label>
+          {/* CLIENTE por CPF */}
+          <label className={lab}>Cliente (CPF)</label>
           {cliente ? (
-            <div className="mb-3 flex items-center justify-between rounded-lg border border-[#e3ddcf] bg-[#F4F1EA] px-3 py-2">
-              <span className="text-[13.5px] text-[#1F3A2E]">{cliente.nome}<span className="ml-2 text-[12px] text-[#8a8678]">{cliente.whatsapp || ''}</span></span>
-              <button onClick={() => { setCliente(null); setEnderecos([]); }} className="text-[12px] font-semibold text-[#B8935A]">trocar</button>
+            <div className="mb-3 rounded-lg border border-[#e3ddcf] bg-[#F4F1EA] px-3 py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[13.5px] font-medium text-[#1F3A2E]">{cliente.nome}</span>
+                <button onClick={trocarCliente} className="text-[12px] font-semibold text-[#B8935A]">trocar</button>
+              </div>
+              <div className="text-[12px] text-[#8a8678]">{cliente.whatsapp ? `WhatsApp ${cliente.whatsapp}` : ''}{cliente.cpf ? ` · CPF ${cliente.cpf}` : ''}</div>
             </div>
           ) : (
-            <div className="relative mb-3">
-              <input className={inp} value={cBusca} onChange={(e) => buscarClientes(e.target.value)} placeholder="Buscar por nome ou WhatsApp…" />
-              {cRes.length > 0 && (
-                <div className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-[#e3ddcf] bg-white shadow">
-                  {cRes.map((c) => (
-                    <button key={c.id} onClick={() => escolherCliente(c)} className="block w-full px-3 py-2 text-left text-[13px] hover:bg-[#F4F1EA]">
-                      {c.nome} <span className="text-[#8a8678]">· {c.whatsapp || '—'}</span>
-                    </button>
-                  ))}
+            <div className="mb-3">
+              <div className="flex gap-2">
+                <input className={inp} value={cpf} onChange={(e) => setCpf(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') buscarCpf(); }} placeholder="Digite o CPF e busque" inputMode="numeric" />
+                <button onClick={buscarCpf} disabled={buscando} className="whitespace-nowrap rounded-lg border border-[#e3ddcf] bg-white px-3 py-2 text-[13px] font-semibold text-[#1F3A2E] hover:border-[#B8935A] disabled:opacity-60">{buscando ? '…' : 'Buscar'}</button>
+              </div>
+              <button onClick={() => setPorNome((v) => !v)} className="mt-1 text-[11.5px] font-semibold text-[#B8935A]">{porNome ? 'usar CPF' : 'não tem o CPF? buscar por nome'}</button>
+
+              {porNome && (
+                <div className="relative mt-1">
+                  <input className={inp} value={nomeBusca} onChange={(e) => buscarNome(e.target.value)} placeholder="Buscar cliente por nome…" />
+                  {nomeRes.length > 0 && (
+                    <div className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-[#e3ddcf] bg-white shadow">
+                      {nomeRes.map((c) => (
+                        <button key={c.id} onClick={() => selecionarCliente(c)} className="block w-full px-3 py-2 text-left text-[13px] hover:bg-[#F4F1EA]">{c.nome} <span className="text-[#8a8678]">· {c.whatsapp || '—'}</span></button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {buscou && !porNome && (
+                <div className="mt-2 rounded-lg border border-[#e3ddcf] bg-[#faf8f2] p-3">
+                  <div className="mb-2 text-[12px] font-semibold text-[#8a6a1f]">Cliente novo — cadastro rápido</div>
+                  <div className="mb-2"><input className={inp} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do cliente" /></div>
+                  <input className={inp} value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="WhatsApp (com DDD)" inputMode="numeric" />
                 </div>
               )}
             </div>
@@ -594,31 +688,41 @@ function NovoPedido({ lojas, onClose, onCreated }) {
 
           {/* Endereço */}
           <label className={lab}>Endereço de entrega</label>
-          {enderecos.length > 0 && (
+          {cliente && enderecos.length > 0 && (
             <select className={`${inp} mb-2`} value={endSel} onChange={(e) => setEndSel(e.target.value)}>
-              {enderecos.map((e) => (
-                <option key={e.id} value={e.id}>{[e.logradouro, e.numero, e.bairro].filter(Boolean).join(', ')}</option>
-              ))}
+              {enderecos.map((e) => <option key={e.id} value={e.id}>{[e.logradouro, e.numero, e.bairro].filter(Boolean).join(', ')}</option>)}
               <option value="novo">+ Outro endereço</option>
             </select>
           )}
           {usaEndNovo && (
             <div className="mb-3 grid grid-cols-6 gap-2">
-              <input className={`${inp} col-span-4`} value={end.logradouro} onChange={(e) => setEnd({ ...end, logradouro: e.target.value })} placeholder="Rua / logradouro" />
-              <input className={`${inp} col-span-2`} value={end.numero} onChange={(e) => setEnd({ ...end, numero: e.target.value })} placeholder="Nº" />
+              <div className="col-span-3">
+                <input className={inp} value={end.cep} onChange={(e) => buscarCep(e.target.value)} onBlur={(e) => buscarCep(e.target.value)} placeholder={cepBuscando ? 'Buscando CEP…' : 'CEP'} inputMode="numeric" />
+              </div>
+              <input className={`${inp} col-span-3`} value={end.numero} onChange={(e) => setEnd({ ...end, numero: e.target.value })} placeholder="Número" />
+              <input className={`${inp} col-span-6`} value={end.logradouro} onChange={(e) => setEnd({ ...end, logradouro: e.target.value })} placeholder="Rua / logradouro" />
               <input className={`${inp} col-span-3`} value={end.bairro} onChange={(e) => setEnd({ ...end, bairro: e.target.value })} placeholder="Bairro" />
-              <input className={`${inp} col-span-3`} value={end.cidade} onChange={(e) => setEnd({ ...end, cidade: e.target.value })} placeholder="Cidade" />
-              <input className={`${inp} col-span-2`} value={end.cep} onChange={(e) => setEnd({ ...end, cep: e.target.value })} placeholder="CEP" />
-              <input className={`${inp} col-span-4`} value={end.complemento} onChange={(e) => setEnd({ ...end, complemento: e.target.value })} placeholder="Complemento (opcional)" />
+              <input className={`${inp} col-span-2`} value={end.cidade} onChange={(e) => setEnd({ ...end, cidade: e.target.value })} placeholder="Cidade" />
+              <input className={`${inp} col-span-1`} value={end.uf} onChange={(e) => setEnd({ ...end, uf: e.target.value })} placeholder="UF" maxLength={2} />
+              <input className={`${inp} col-span-6`} value={end.complemento} onChange={(e) => setEnd({ ...end, complemento: e.target.value })} placeholder="Complemento (opcional)" />
             </div>
           )}
 
-          {/* Itens */}
+          {/* Itens com filtros */}
           <label className={lab}>Itens</label>
+          <div className="mb-2 grid grid-cols-2 gap-2">
+            <select className={inp} value={fCat} onChange={(e) => setFCat(e.target.value)}>
+              <option value="">Todas as categorias</option>
+              {categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+            <select className={inp} value={fPet} onChange={(e) => setFPet(e.target.value)}>
+              {PET_OPTS.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+            </select>
+          </div>
           <div className="relative mb-2">
             <input className={inp} value={pBusca} onChange={(e) => buscarProdutos(e.target.value)} placeholder="Buscar produto por nome ou SKU…" />
             {pRes.length > 0 && (
-              <div className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-lg border border-[#e3ddcf] bg-white shadow">
+              <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[#e3ddcf] bg-white shadow">
                 {pRes.map((p) => (
                   <button key={p.id} onClick={() => addItem(p)} className="flex w-full items-center justify-between px-3 py-2 text-left text-[13px] hover:bg-[#F4F1EA]">
                     <span className="truncate pr-2">{p.nome}</span>
@@ -643,14 +747,8 @@ function NovoPedido({ lojas, onClose, onCreated }) {
 
           {/* Frete / desconto */}
           <div className="mb-3 grid grid-cols-2 gap-3">
-            <div>
-              <label className={lab}>Frete (R$)</label>
-              <input type="number" min="0" step="0.01" className={inp} value={frete} onChange={(e) => setFrete(e.target.value)} placeholder="0,00" />
-            </div>
-            <div>
-              <label className={lab}>Desconto (R$)</label>
-              <input type="number" min="0" step="0.01" className={inp} value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" />
-            </div>
+            <div><label className={lab}>Frete (R$)</label><input type="number" min="0" step="0.01" className={inp} value={frete} onChange={(e) => setFrete(e.target.value)} placeholder="0,00" /></div>
+            <div><label className={lab}>Desconto (R$)</label><input type="number" min="0" step="0.01" className={inp} value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" /></div>
           </div>
 
           <div className="rounded-lg bg-[#F4F1EA] px-3.5 py-3 text-[13px]">
