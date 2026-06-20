@@ -33,8 +33,13 @@ const HMAP = {
   whatsapp: ['whatsapp', 'whats', 'zap', 'telefone', 'celular', 'contato', 'fone'],
   cpf: ['cpf', 'documento'],
   email: ['email', 'e-mail'],
+  cep: ['cep'],
+  logradouro: ['logradouro', 'endereco', 'rua', 'rua/logradouro', 'rua logradouro'],
+  numero: ['numero', 'no', 'num', 'nº'],
+  complemento: ['complemento', 'compl'],
   cidade: ['cidade', 'municipio'],
   bairro: ['bairro'],
+  uf: ['uf', 'estado'],
   loja: ['loja', 'unidade', 'loja preferida'],
   optIn: ['marketing', 'optin', 'opt-in', 'aceita marketing', 'lgpd', 'aceita'],
   petNome: ['pet', 'pet nome', 'nome do pet', 'animal'],
@@ -131,8 +136,13 @@ export default function ClientesPage() {
         validos.push({
           nome, whatsapp: wa, cpf: map.cpf ? String(r[map.cpf] || '').trim() : '',
           email: map.email ? String(r[map.email] || '').trim() : '',
+          cep: map.cep ? String(r[map.cep] || '').trim() : '',
+          logradouro: map.logradouro ? String(r[map.logradouro] || '').trim() : '',
+          numero: map.numero ? String(r[map.numero] || '').trim() : '',
+          complemento: map.complemento ? String(r[map.complemento] || '').trim() : '',
           cidade: map.cidade ? String(r[map.cidade] || '').trim() : '',
           bairro: map.bairro ? String(r[map.bairro] || '').trim() : '',
+          uf: map.uf ? String(r[map.uf] || '').trim() : '',
           loja: map.loja ? String(r[map.loja] || '').trim() : '', optIn, pet,
         });
       });
@@ -151,8 +161,8 @@ export default function ClientesPage() {
 
   const baixarModelo = async () => {
     const XLSX = await import('xlsx');
-    const headers = ['Nome', 'WhatsApp', 'CPF', 'Email', 'Cidade', 'Bairro', 'Loja', 'Aceita Marketing', 'Pet', 'Espécie', 'Raça'];
-    const ex = ['Maria Silva', '43 99999-1234', '123.456.789-00', 'maria@email.com', 'Londrina', 'Centro', 'Av. Maringá', 'Sim', 'Thor', 'Cão', 'Golden Retriever'];
+    const headers = ['Nome', 'WhatsApp', 'CPF', 'CEP', 'Logradouro', 'Número', 'Bairro', 'Cidade', 'UF', 'Complemento', 'Email', 'Loja', 'Aceita Marketing', 'Pet', 'Espécie', 'Raça'];
+    const ex = ['Maria Silva', '43 99999-1234', '123.456.789-00', '86050-670', 'Rua Belém', '120', 'Centro', 'Londrina', 'PR', 'Apto 12', 'maria@email.com', 'Av. Maringá', 'Sim', 'Thor', 'Cão', 'Golden Retriever'];
     const ws = XLSX.utils.aoa_to_sheet([headers, ex]);
     ws['!cols'] = headers.map((h) => ({ wch: Math.max(12, h.length + 3) }));
     const wb = XLSX.utils.book_new();
