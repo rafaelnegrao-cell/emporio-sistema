@@ -39,6 +39,7 @@ router.get(
         cliente: { select: { id: true, nome: true, whatsapp: true } },
         loja: { select: { id: true, nome: true } },
         itens: { select: { id: true } },
+        entrega: { select: { entregadorId: true, saidaEm: true, entregueEm: true, entregador: { select: { id: true, nome: true, telefone: true } } } },
       },
     });
 
@@ -58,6 +59,7 @@ router.get(
         loja: { select: { id: true, nome: true } },
         enderecoEntrega: true,
         itens: { include: { produto: { select: { id: true, nome: true, sku: true } } } },
+        entrega: { include: { entregador: { select: { id: true, nome: true, telefone: true } } } },
       },
     });
     if (!pedido) return res.status(404).json({ erro: 'Pedido não encontrado' });
@@ -73,11 +75,44 @@ router.patch(
   asyncHandler(async (req, res) => {
     const { status } = req.body;
     if (!status) return res.status(400).json({ erro: 'status é obrigatório' });
-    const pedido = await prisma.pedido.update({
-      where: { id: BigInt(req.params.id) },
-      data: { status },
-    });
+    const id = BigInt(req.params.id);
+    const pedido = await prisma.pedido.update({ where: { id }, data: { status } });
+
+    // Carimba horários na Entrega (se já houver entregador atribuído).
+    if (status === 'EM_ROTA' || status === 'ENTREGUE') {
+      const entrega = await prisma.entrega.findUnique({ where: { pedidoId: id } });
+      if (entrega) {
+        await prisma.entrega.update({
+          where: { pedidoId: id },
+          data: status === 'EM_ROTA'
+            ? { saidaEm: entrega.saidaEm || new Date() }
+            : { entregueEm: new Date(), saidaEm: entrega.saidaEm || new Date() },
+        });
+      }
+    }
     res.json(serializarBigInt(pedido));
+  })
+);
+
+// PATCH /api/pedidos/:id/entregador — atribui (ou remove) o entregador do pedido
+router.patch(
+  '/:id/entregador',
+  autenticar,
+  exigirPapel('ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const pedidoId = BigInt(req.params.id);
+    const { entregadorId } = req.body || {};
+    if (!entregadorId) {
+      await prisma.entrega.deleteMany({ where: { pedidoId } });
+      return res.json({ ok: true, entregadorId: null });
+    }
+    const entrega = await prisma.entrega.upsert({
+      where: { pedidoId },
+      update: { entregadorId: BigInt(entregadorId) },
+      create: { pedidoId, entregadorId: BigInt(entregadorId) },
+      include: { entregador: { select: { id: true, nome: true, telefone: true } } },
+    });
+    res.json(serializarBigInt(entrega));
   })
 );
 
