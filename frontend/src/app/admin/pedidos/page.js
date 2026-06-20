@@ -490,6 +490,9 @@ function NovoPedido({ lojas, onClose, onCreated }) {
   const [erro, setErro] = useState(null);
   const tp = useState(() => ({ t: null }))[0];
   const tn = useState(() => ({ t: null }))[0];
+  const tc = useState(() => ({ t: null }))[0];
+  const [cotacao, setCotacao] = useState(null);
+  const [freteManual, setFreteManual] = useState(false);
 
   useEffect(() => { if (lojas.length === 1) setLojaId(String(lojas[0].id)); }, [lojas]);
   useEffect(() => {
@@ -526,6 +529,7 @@ function NovoPedido({ lojas, onClose, onCreated }) {
     setCliente(null); setBuscou(false); setCpf(''); setNome(''); setWhatsapp('');
     setEnderecos([]); setEndSel('novo'); setPorNome(false); setNomeBusca(''); setNomeRes([]);
     setEnd({ cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: 'PR' });
+    setFreteManual(false); setCotacao(null);
   };
 
   const buscarNome = (txt) => {
@@ -539,6 +543,7 @@ function NovoPedido({ lojas, onClose, onCreated }) {
 
   const buscarCep = async (cepRaw) => {
     setEnd((e) => ({ ...e, cep: cepRaw }));
+    setFreteManual(false);
     const d = soDig(cepRaw);
     if (d.length !== 8) return;
     setCepBuscando(true);
@@ -580,6 +585,30 @@ function NovoPedido({ lojas, onClose, onCreated }) {
   const subtotal = itens.reduce((s, i) => s + i.preco * i.quantidade, 0);
   const total = subtotal + (Number(frete) || 0) - (Number(desconto) || 0);
   const usaEndNovo = !cliente || endSel === 'novo' || !enderecos.length;
+
+  // Endereço efetivo (novo ou salvo) usado pra cotar o frete
+  const endEfetivo = usaEndNovo ? end : (enderecos.find((e) => String(e.id) === String(endSel)) || end);
+
+  // Cotação automática do frete pela zona (precedência CEP -> cidade -> bairro)
+  useEffect(() => {
+    const cepD = soDig(endEfetivo.cep);
+    if (!lojaId || cepD.length !== 8) { setCotacao(null); return; }
+    clearTimeout(tc.t);
+    tc.t = setTimeout(async () => {
+      try {
+        const r = await api.post('/api/frete/cotar', {
+          cep: cepD,
+          bairro: endEfetivo.bairro || '',
+          cidade: endEfetivo.cidade || '',
+          valorPedido: subtotal,
+          lojaId,
+        });
+        setCotacao(r || null);
+        if (r && r.atendido && !freteManual) setFrete(String(r.taxa ?? 0));
+      } catch (_) { setCotacao(null); }
+    }, 400);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lojaId, endEfetivo.cep, endEfetivo.bairro, endEfetivo.cidade, subtotal, freteManual]);
 
   const criar = async () => {
     setErro(null);
@@ -747,7 +776,13 @@ function NovoPedido({ lojas, onClose, onCreated }) {
 
           {/* Frete / desconto */}
           <div className="mb-3 grid grid-cols-2 gap-3">
-            <div><label className={lab}>Frete (R$)</label><input type="number" min="0" step="0.01" className={inp} value={frete} onChange={(e) => setFrete(e.target.value)} placeholder="0,00" /></div>
+            <div>
+              <label className={lab}>Frete (R$)</label>
+              <input type="number" min="0" step="0.01" className={inp} value={frete} onChange={(e) => { setFreteManual(true); setFrete(e.target.value); }} placeholder="0,00" />
+              {cotacao && (cotacao.atendido
+                ? <div className="mt-1 text-[11.5px] text-[#3f7d5b]">Zona: {BRL(cotacao.taxa)}{cotacao.prazoMinHoras ? ` · ${cotacao.prazoMinHoras}–${cotacao.prazoMaxHoras}h` : ''}{freteManual ? ' · ajustado manual' : ''}</div>
+                : <div className="mt-1 text-[11.5px] text-[#a85a52]">Fora das zonas cadastradas — informe o frete manual.</div>)}
+            </div>
             <div><label className={lab}>Desconto (R$)</label><input type="number" min="0" step="0.01" className={inp} value={desconto} onChange={(e) => setDesconto(e.target.value)} placeholder="0,00" /></div>
           </div>
 
