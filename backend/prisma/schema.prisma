@@ -356,6 +356,7 @@ model Pedido {
   observacoesCliente    String?       @db.Text
   observacoesInternas   String?       @db.Text
   pedidoEm              DateTime      @default(now())
+  separadoEm            DateTime?
   previsaoEntrega       DateTime?
   entregueEm            DateTime?
   atualizadoEm          DateTime      @updatedAt
@@ -413,6 +414,8 @@ model Entrega {
   id                  BigInt      @id @default(autoincrement())
   pedidoId            BigInt      @unique
   entregadorId        BigInt
+  atribuidaEm         DateTime?
+  aceitoEm            DateTime?
   saidaEm             DateTime?
   entregueEm          DateTime?
   tentativasEntrega   Int         @default(1)
