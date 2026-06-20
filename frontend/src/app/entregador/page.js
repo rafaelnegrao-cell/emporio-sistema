@@ -21,10 +21,16 @@ const BRL = (n) => (n == null ? '' : Number(n).toLocaleString('pt-BR', { style: 
 const hora = (d) => (d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
 const soDig = (s) => String(s || '').replace(/\D/g, '');
 const PENDENTES = ['ACEITO', 'EM_SEPARACAO', 'SEPARADO', 'EM_ROTA'];
+function slaInfo(aceitoEm) {
+  if (!aceitoEm) return null;
+  const min = Math.max(0, Math.floor((Date.now() - new Date(aceitoEm).getTime()) / 60000));
+  return { min, estourou: min >= 15 };
+}
 
 export default function EntregadorPage() {
   const [logado, setLogado] = useState(false);
   const [nome, setNome] = useState('');
+  const [direcionadas, setDirecionadas] = useState([]);
   const [disponiveis, setDisponiveis] = useState([]);
   const [entregas, setEntregas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,7 +43,12 @@ export default function EntregadorPage() {
   const carregar = useCallback(async (silent) => {
     if (!silent) setLoading(true);
     try {
-      const [d, e] = await Promise.all([api.get('/api/entregadores/me/disponiveis'), api.get('/api/entregadores/me/entregas')]);
+      const [dir, d, e] = await Promise.all([
+        api.get('/api/entregadores/me/direcionadas'),
+        api.get('/api/entregadores/me/disponiveis'),
+        api.get('/api/entregadores/me/entregas'),
+      ]);
+      setDirecionadas(Array.isArray(dir?.data) ? dir.data : []);
       setDisponiveis(Array.isArray(d?.data) ? d.data : []);
       setEntregas(Array.isArray(e?.data) ? e.data : []);
       setErro(null);
@@ -52,7 +63,7 @@ export default function EntregadorPage() {
     return () => clearInterval(timer.current);
   }, [logado, carregar]);
 
-  const sair = () => { window.localStorage.removeItem(TKEY); setLogado(false); setDisponiveis([]); setEntregas([]); };
+  const sair = () => { window.localStorage.removeItem(TKEY); setLogado(false); setDirecionadas([]); setDisponiveis([]); setEntregas([]); };
 
   const aceitar = async (pedidoId) => {
     setAcao(pedidoId); setErro(null);
@@ -89,9 +100,9 @@ export default function EntregadorPage() {
 
       <main className="mx-auto max-w-md px-4 py-4">
         <div className="mb-4 grid grid-cols-3 gap-2">
-          <Stat n={disponiveis.length} label="Disponíveis" destaque />
+          <Stat n={direcionadas.length} label="Pra você" destaque />
+          <Stat n={disponiveis.length} label="Disponíveis" />
           <Stat n={pendentes.length} label="Minhas" />
-          <Stat n={entregues.length} label="Entregues" />
         </div>
 
         {erro && <div className="mb-3 rounded-lg border border-[#e7c9c4] bg-[#fbeeec] px-3 py-2 text-[13px] text-[#b23b3b]">{erro}</div>}
@@ -100,6 +111,11 @@ export default function EntregadorPage() {
           <div className="py-12 text-center text-[14px] text-[#8a8678]">Carregando…</div>
         ) : (
           <>
+            {direcionadas.length > 0 && (
+              <Secao titulo={`Direcionadas a você (${direcionadas.length})`}>
+                {direcionadas.map((e) => <Card key={e.id} e={e} modo="direcionada" acao={acao} onAceitar={aceitar} />)}
+              </Secao>
+            )}
             {disponiveis.length > 0 && (
               <Secao titulo={`Disponíveis para retirada (${disponiveis.length})`}>
                 {disponiveis.map((e) => <Card key={e.id} e={e} modo="disponivel" acao={acao} onAceitar={aceitar} />)}
@@ -115,7 +131,7 @@ export default function EntregadorPage() {
                 {entregues.map((e) => <Card key={e.id} e={e} modo="minha" acao={acao} onStatus={mudarStatus} />)}
               </Secao>
             )}
-            {disponiveis.length === 0 && entregas.length === 0 && (
+            {direcionadas.length === 0 && disponiveis.length === 0 && entregas.length === 0 && (
               <div className="py-12 text-center text-[14px] text-[#8a8678]">Nenhuma entrega disponível no momento.</div>
             )}
           </>
@@ -183,11 +199,12 @@ function Card({ e, modo, acao, onAceitar, onStatus }) {
   const endLinha2 = [end.bairro, end.cidade].filter(Boolean).join(' · ');
   const mapsQuery = encodeURIComponent([end.logradouro, end.numero, end.bairro, end.cidade, end.cep].filter(Boolean).join(', '));
   const ocupado = acao === e.id;
-  const disponivel = modo === 'disponivel';
+  const oferta = modo === 'disponivel' || modo === 'direcionada';
   const entregue = e.status === 'ENTREGUE';
   const emRota = e.status === 'EM_ROTA';
-  const tag = disponivel ? 'Disponível' : entregue ? 'Entregue' : emRota ? 'Em rota' : 'Indo retirar';
-  const tagCls = disponivel ? 'bg-[#fbf1dd] text-[#8a6a1f]' : entregue ? 'bg-[#e6f0e9] text-[#2f6b48]' : emRota ? 'bg-[#e7eef9] text-[#365b9a]' : 'bg-[#eef1ec] text-[#5b6b5f]';
+  const tag = modo === 'direcionada' ? 'Pra você' : modo === 'disponivel' ? 'Disponível' : entregue ? 'Entregue' : emRota ? 'Em rota' : 'Indo retirar';
+  const tagCls = modo === 'direcionada' ? 'bg-[#fbe9d9] text-[#9a5b1f]' : modo === 'disponivel' ? 'bg-[#fbf1dd] text-[#8a6a1f]' : entregue ? 'bg-[#e6f0e9] text-[#2f6b48]' : emRota ? 'bg-[#e7eef9] text-[#365b9a]' : 'bg-[#eef1ec] text-[#5b6b5f]';
+  const sla = (!oferta && !entregue && !emRota) ? slaInfo(e.entrega && e.entrega.aceitoEm) : null;
 
   return (
     <div className={`rounded-xl border bg-white p-4 ${entregue ? 'border-[#cfe0d4] opacity-80' : 'border-[#e3ddcf]'}`}>
@@ -196,7 +213,10 @@ function Card({ e, modo, acao, onAceitar, onStatus }) {
           <div className="truncate text-[15px] font-semibold text-[#1F3A2E]">{e.cliente?.nome || 'Cliente'}</div>
           <div className="text-[12px] text-[#8a8678]">Pedido {e.numero} · {e.loja?.nome || ''}</div>
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${tagCls}`}>{tag}</span>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${tagCls}`}>{tag}</span>
+          {sla && <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${sla.estourou ? 'bg-[#fbe3e0] text-[#b23b3b]' : 'bg-[#eef4ef] text-[#5b6b5f]'}`}>⏱ {sla.min} min</span>}
+        </div>
       </div>
 
       <div className="mt-3 flex items-start gap-2 text-[13.5px] text-[#3a3730]">
@@ -224,23 +244,21 @@ function Card({ e, modo, acao, onAceitar, onStatus }) {
         </div>
       </div>
 
-      {disponivel ? (
+      {oferta ? (
         <div className="mt-3">
           <button onClick={() => onAceitar(e.id)} disabled={ocupado} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#1F3A2E] px-4 py-2.5 text-[14px] font-semibold text-[#F4F1EA] hover:bg-[#16291f] disabled:opacity-50">
             <Hand size={17} /> {ocupado ? 'Aceitando…' : 'Aceitar e ir retirar'}
           </button>
         </div>
-      ) : !entregue ? (
+      ) : emRota ? (
         <div className="mt-3">
-          {emRota ? (
-            <button onClick={() => onStatus(e.id, 'ENTREGUE')} disabled={ocupado} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#2f6b48] px-4 py-2.5 text-[14px] font-semibold text-white hover:bg-[#285c3e] disabled:opacity-50">
-              <CheckCircle2 size={17} /> {ocupado ? 'Salvando…' : 'Confirmar entrega'}
-            </button>
-          ) : (
-            <button onClick={() => onStatus(e.id, 'EM_ROTA')} disabled={ocupado} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#B8935A] px-4 py-2.5 text-[14px] font-semibold text-[#16291f] hover:bg-[#a8824a] disabled:opacity-50">
-              <Navigation size={17} /> {ocupado ? 'Salvando…' : 'Retirei — sair para entrega'}
-            </button>
-          )}
+          <button onClick={() => onStatus(e.id, 'ENTREGUE')} disabled={ocupado} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#2f6b48] px-4 py-2.5 text-[14px] font-semibold text-white hover:bg-[#285c3e] disabled:opacity-50">
+            <CheckCircle2 size={17} /> {ocupado ? 'Salvando…' : 'Confirmar entrega'}
+          </button>
+        </div>
+      ) : !entregue ? (
+        <div className="mt-3 rounded-lg bg-[#f4f1ea] px-3 py-2 text-center text-[12.5px] text-[#6b685e]">
+          Vá até a loja retirar — a saída é registrada pela expedição.
         </div>
       ) : (
         <div className="mt-3 flex items-center gap-2 text-[13px] font-medium text-[#2f6b48]">
