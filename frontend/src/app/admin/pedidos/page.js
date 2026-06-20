@@ -38,6 +38,9 @@ const STATUS_LABEL = {
 const BRL = (n) =>
   n == null ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
 
+const quando = (d) =>
+  !d ? '' : new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
 const hora = (d) => {
   if (!d) return '';
   const dt = new Date(d);
@@ -413,6 +416,50 @@ function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDireci
   );
 }
 
+function construirTimeline(p) {
+  const ev = [];
+  const ent = p.entrega || null;
+  const entNome = ent && ent.entregador ? ent.entregador.nome : null;
+  if (p.pedidoEm) ev.push({ t: p.pedidoEm, titulo: 'Pedido recebido', sub: p.canalOrigem ? `via ${p.canalOrigem}` : '' });
+  if (ent && ent.atribuidaEm) ev.push({ t: ent.atribuidaEm, titulo: entNome ? `Direcionado a ${entNome}` : 'Direcionado a um entregador' });
+  if (ent && ent.aceitoEm) ev.push({ t: ent.aceitoEm, titulo: entNome ? `Aceito por ${entNome}` : 'Aceito pelo entregador' });
+  const hist = Array.isArray(p.historicoStatus) ? p.historicoStatus : [];
+  if (hist.length) {
+    for (const h of hist) {
+      ev.push({ t: h.criadoEm, titulo: STATUS_LABEL[h.statusNovo] || h.statusNovo, sub: h.usuario && h.usuario.nome ? `por ${h.usuario.nome}` : '', motivo: h.motivo });
+    }
+  } else {
+    if (ent && ent.saidaEm) ev.push({ t: ent.saidaEm, titulo: 'Saiu para entrega' });
+    if (ent && ent.entregueEm) ev.push({ t: ent.entregueEm, titulo: 'Entregue' });
+  }
+  return ev.sort((a, b) => new Date(a.t) - new Date(b.t));
+}
+
+function Timeline({ p }) {
+  const eventos = construirTimeline(p);
+  if (!eventos.length) return null;
+  return (
+    <div className="mt-4">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[#8a8678]">Linha do tempo</div>
+      <div>
+        {eventos.map((e, i) => (
+          <div key={i} className="flex gap-3 pb-3 last:pb-0">
+            <div className="flex flex-col items-center">
+              <span className="mt-1 h-[8px] w-[8px] shrink-0 rounded-full bg-[#3f7d5b]" />
+              {i < eventos.length - 1 && <span className="w-px flex-1 bg-[#e3ddcf]" />}
+            </div>
+            <div className="-mt-0.5">
+              <div className="text-[13px] font-medium text-[#1F3A2E]">{e.titulo}</div>
+              <div className="text-[11.5px] text-[#9a9483]">{quando(e.t)}{e.sub ? ` · ${e.sub}` : ''}</div>
+              {e.motivo && <div className="text-[11.5px] text-[#a85a52]">{e.motivo}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Drawer({ p, salvando, entregadores = [], onClose, onAvancar, onStatus, onEntregador }) {
   const itens = Array.isArray(p.itens) ? p.itens : [];
   const podeAvancar = FLUXO.indexOf(p.status) >= 0 && p.status !== 'ENTREGUE';
@@ -476,6 +523,8 @@ function Drawer({ p, salvando, entregadores = [], onClose, onAvancar, onStatus, 
             )}
             <div className="mt-1 flex items-center justify-between border-t border-[#e3ddcf] pt-2 text-[15px] font-bold text-[#1F3A2E]"><span>Total</span><span>{BRL(p.valorTotal)}</span></div>
           </div>
+
+          <Timeline p={p} />
         </div>
 
         {/* Ações */}
