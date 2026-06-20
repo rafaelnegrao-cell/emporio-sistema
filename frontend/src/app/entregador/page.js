@@ -24,7 +24,8 @@ const PENDENTES = ['ACEITO', 'EM_SEPARACAO', 'SEPARADO', 'EM_ROTA'];
 function slaInfo(aceitoEm) {
   if (!aceitoEm) return null;
   const min = Math.max(0, Math.floor((Date.now() - new Date(aceitoEm).getTime()) / 60000));
-  return { min, estourou: min >= 15 };
+  const tier = min >= 15 ? 'estourou' : min >= 10 ? 'atencao' : 'ok';
+  return { min, tier };
 }
 
 export default function EntregadorPage() {
@@ -206,9 +207,12 @@ function Card({ e, modo, acao, onAceitar, onStatus }) {
   const tag = modo === 'direcionada' ? 'Pra você' : modo === 'disponivel' ? 'Disponível' : entregue ? 'Entregue' : emRota ? 'Em rota' : 'Indo retirar';
   const tagCls = modo === 'direcionada' ? 'bg-[#fbe9d9] text-[#9a5b1f]' : modo === 'disponivel' ? 'bg-[#fbf1dd] text-[#8a6a1f]' : entregue ? 'bg-[#e6f0e9] text-[#2f6b48]' : emRota ? 'bg-[#e7eef9] text-[#365b9a]' : 'bg-[#eef1ec] text-[#5b6b5f]';
   const sla = (!oferta && !entregue && !emRota) ? slaInfo(e.entrega && e.entrega.aceitoEm) : null;
+  const tier = sla ? sla.tier : null;
+  const cartaoCls = tier === 'estourou' ? 'border-[#e0a3a0] bg-[#fdf3f2]' : tier === 'atencao' ? 'border-[#e6cf94] bg-[#fdf8ec]' : entregue ? 'border-[#cfe0d4] bg-white opacity-80' : 'border-[#e3ddcf] bg-white';
+  const badgeCls = tier === 'estourou' ? 'bg-[#fbe3e0] text-[#b23b3b]' : tier === 'atencao' ? 'bg-[#fbf0d6] text-[#9a6a1f]' : 'bg-[#eef4ef] text-[#5b6b5f]';
 
   return (
-    <div className={`rounded-xl border bg-white p-4 ${entregue ? 'border-[#cfe0d4] opacity-80' : 'border-[#e3ddcf]'}`}>
+    <div className={`rounded-xl border p-4 ${cartaoCls}`}>
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <div className="truncate text-[15px] font-semibold text-[#1F3A2E]">{e.cliente?.nome || 'Cliente'}</div>
@@ -216,7 +220,7 @@ function Card({ e, modo, acao, onAceitar, onStatus }) {
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${tagCls}`}>{tag}</span>
-          {sla && <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${sla.estourou ? 'bg-[#fbe3e0] text-[#b23b3b]' : 'bg-[#eef4ef] text-[#5b6b5f]'}`}>⏱ {sla.min} min</span>}
+          {sla && <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badgeCls}`}>⏱ {sla.min} min</span>}
         </div>
       </div>
 
@@ -259,8 +263,12 @@ function Card({ e, modo, acao, onAceitar, onStatus }) {
           </button>
         </div>
       ) : !entregue ? (
-        <div className="mt-3 rounded-lg bg-[#f4f1ea] px-3 py-2 text-center text-[12.5px] text-[#6b685e]">
-          Vá até a loja retirar — a saída é registrada pela expedição.
+        <div className={`mt-3 rounded-lg px-3 py-2 text-center text-[12.5px] ${tier === 'estourou' ? 'bg-[#fbe3e0] font-semibold text-[#b23b3b]' : tier === 'atencao' ? 'bg-[#fbf0d6] font-semibold text-[#9a6a1f]' : 'bg-[#f4f1ea] text-[#6b685e]'}`}>
+          {tier === 'estourou'
+            ? `Passou do tempo de retirada (${sla.min} min) — retire o quanto antes.`
+            : tier === 'atencao'
+            ? `Aceito há ${sla.min} min — vá retirar (limite de 15 min).`
+            : 'Vá até a loja retirar — a saída é registrada pela expedição.'}
         </div>
       ) : (
         <div className="mt-3 flex items-center gap-2 text-[13px] font-medium text-[#2f6b48]">
