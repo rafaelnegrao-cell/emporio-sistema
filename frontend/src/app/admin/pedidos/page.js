@@ -14,6 +14,11 @@ const COLUNAS = [
   { key: 'ENTREGUE', label: 'Entregue', accent: '#3f7d5b' },
 ];
 const FLUXO = COLUNAS.map((c) => c.key);
+function slaInfo(aceitoEm) {
+  if (!aceitoEm) return null;
+  const min = Math.max(0, Math.floor((Date.now() - new Date(aceitoEm).getTime()) / 60000));
+  return { min, estourou: min >= 15 };
+}
 const CANCELADOS = ['CANCELADO_CLIENTE', 'CANCELADO_LOJA', 'DEVOLVIDO'];
 
 const STATUS_LABEL = {
@@ -51,21 +56,25 @@ export default function PedidosPage() {
   const [entregadores, setEntregadores] = useState([]);
   const [salvando, setSalvando] = useState(false);
 
-  const carregar = useCallback(async () => {
-    setLoading(true);
+  const carregar = useCallback(async (silent) => {
+    if (!silent) setLoading(true);
     setErro(null);
     try {
       const r = await api.get('/api/pedidos', lojaId ? { lojaId } : {});
       setPedidos(Array.isArray(r?.data) ? r.data : []);
     } catch (e) {
-      setErro(e.message);
-      setPedidos([]);
+      if (!silent) { setErro(e.message); setPedidos([]); }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [lojaId]);
 
   useEffect(() => { carregar(); }, [carregar]);
+  // Atualização automática (não interrompe arrasto nem painéis abertos)
+  useEffect(() => {
+    const t = setInterval(() => { if (!drag && !detalhe && !novo) carregar(true); }, 20000);
+    return () => clearInterval(t);
+  }, [carregar, drag, detalhe, novo]);
   useEffect(() => {
     api.get('/api/lojas').then((r) => {
       const lista = Array.isArray(r) ? r : r?.data || [];
@@ -135,6 +144,20 @@ export default function PedidosPage() {
       await api.patch(`/api/pedidos/${id}/entregador`, { entregadorId: entregadorId || null });
     } catch (e) {
       alert('Não consegui atribuir o entregador: ' + e.message);
+      carregar();
+    }
+  }, [entregadores, carregar]);
+
+  // Direciona o pedido SEPARADO a UM entregador (em paralelo à oferta aberta).
+  const direcionar = useCallback(async (id, entregadorId) => {
+    const ent = entregadores.find((e) => String(e.id) === String(entregadorId));
+    const novaEntrega = { entregadorId, atribuidaEm: new Date().toISOString(), aceitoEm: null, entregador: ent ? { id: ent.id, nome: ent.nome, telefone: ent.telefone } : null };
+    setPedidos((arr) => arr.map((pp) => (String(pp.id) === String(id) ? { ...pp, status: 'SEPARADO', entrega: novaEntrega } : pp)));
+    try {
+      await api.patch(`/api/pedidos/${id}/status`, { status: 'SEPARADO', entregadorId });
+      carregar(true);
+    } catch (e) {
+      alert('Não consegui direcionar: ' + e.message);
       carregar();
     }
   }, [entregadores, carregar]);
@@ -222,7 +245,7 @@ export default function PedidosPage() {
                 </div>
                 <div className="flex min-h-[120px] flex-col gap-2.5 p-2.5">
                   {itens.map((p) => (
-                    <Card key={p.id} p={p} onDragStart={() => setDrag(String(p.id))} onClick={() => abrirDetalhe(p)} />
+                    <Card key={p.id} p={p} col={col.key} entregadores={entregadores} onDirecionar={direcionar} onSaiuLoja={(id) => mudarStatus(id, 'EM_ROTA')} onDragStart={() => setDrag(String(p.id))} onClick={() => abrirDetalhe(p)} />
                   ))}
                   {itens.length === 0 && (
                     <div className="grid flex-1 place-items-center py-6 text-center text-[11.5px] text-[#b9b3a3]">
@@ -286,8 +309,16 @@ function Kpi({ lab, val, note }) {
   );
 }
 
-function Card({ p, onDragStart, onClick, muted }) {
+function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDirecionar, onSaiuLoja }) {
   const nItens = Array.isArray(p.itens) ? p.itens.length : null;
+  const ent = p.entrega || null;
+  const nome = ent && ent.entregador ? ent.entregador.nome : null;
+  const aceito = !!(ent && ent.aceitoEm);
+  const direcionadoPendente = !!(ent && ent.atribuidaEm && !ent.aceitoEm);
+  const noSeparado = col === 'SEPARADO';
+  const sla = noSeparado && aceito ? slaInfo(ent.aceitoEm) : null;
+  const stop = (e) => e.stopPropagation();
+  const selCls = 'mt-2 w-full rounded-lg border border-[#e3ddcf] bg-[#F4F1EA] px-2 py-1.5 text-[11.5px] text-[#1F3A2E] outline-none';
   return (
     <div
       draggable={!!onDragStart}
@@ -304,10 +335,51 @@ function Card({ p, onDragStart, onClick, muted }) {
         <span className="truncate text-[11px] text-[#8a8678]">{p.loja?.nome || ''}{nItens != null ? ` · ${nItens} item(s)` : ''}</span>
         <span className="text-[12.5px] font-semibold text-[#1F3A2E]">{BRL(p.valorTotal)}</span>
       </div>
-      {p.entrega?.entregador?.nome && (
+
+      {!noSeparado && nome && (
         <div className="mt-1.5 flex items-center gap-1 border-t border-[#f0ece0] pt-1.5 text-[11px] text-[#3f7d5b]">
           <span className="h-[6px] w-[6px] rounded-full bg-[#3f7d5b]" />
-          {p.entrega.entregador.nome}
+          {nome}
+        </div>
+      )}
+
+      {noSeparado && (
+        <div className="mt-2 border-t border-[#f0ece0] pt-2" onClick={stop} onMouseDown={stop}>
+          {aceito ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-1 text-[11px] font-medium text-[#3f7d5b]">
+                  <span className="h-[6px] w-[6px] shrink-0 rounded-full bg-[#3f7d5b]" />
+                  <span className="truncate">{nome} · indo retirar</span>
+                </span>
+                {sla && (
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${sla.estourou ? 'bg-[#fbe3e0] text-[#b23b3b]' : 'bg-[#eef4ef] text-[#5b6b5f]'}`}>⏱ {sla.min} min</span>
+                )}
+              </div>
+              <button
+                onClick={() => onSaiuLoja(p.id)}
+                className="mt-2 w-full rounded-lg bg-[#1F3A2E] px-3 py-1.5 text-[12px] font-semibold text-[#F4F1EA] hover:bg-[#16291f]"
+              >
+                Saiu da loja
+              </button>
+            </>
+          ) : direcionadoPendente ? (
+            <>
+              <div className="text-[11px] font-medium text-[#9a5b1f]">Direcionado a {nome} · aguardando aceite</div>
+              <select value="" onChange={(e) => { if (e.target.value) onDirecionar(p.id, e.target.value); }} className={selCls}>
+                <option value="">Trocar entregador…</option>
+                {entregadores.map((en) => <option key={en.id} value={en.id}>{en.nome}</option>)}
+              </select>
+            </>
+          ) : (
+            <>
+              <div className="text-[11px] text-[#8a8678]">Ofertado a todos · aguardando aceite</div>
+              <select value="" onChange={(e) => { if (e.target.value) onDirecionar(p.id, e.target.value); }} className={selCls}>
+                <option value="">Direcionar a um entregador…</option>
+                {entregadores.map((en) => <option key={en.id} value={en.id}>{en.nome}</option>)}
+              </select>
+            </>
+          )}
         </div>
       )}
     </div>
