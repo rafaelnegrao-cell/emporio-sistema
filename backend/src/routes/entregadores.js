@@ -116,7 +116,7 @@ router.get(
         loja: { select: { nome: true } },
         enderecoEntrega: true,
         itens: { select: { quantidade: true, produto: { select: { nome: true } } } },
-        entrega: { select: { saidaEm: true, entregueEm: true } },
+        entrega: { select: { atribuidaEm: true, aceitoEm: true, saidaEm: true, entregueEm: true } },
       },
     });
     res.json(serializarBigInt({ data: pedidos }));
@@ -132,23 +132,25 @@ router.patch(
     const pedidoId = BigInt(req.params.pedidoId);
     const meuId = BigInt(req.usuario.id);
     const status = req.body && req.body.status;
-    if (!['EM_ROTA', 'ENTREGUE'].includes(status)) {
-      return res.status(400).json({ erro: 'Status inválido. Use EM_ROTA ou ENTREGUE.' });
+    // O entregador só confirma a ENTREGA. A saída da loja é confirmada pela expedição.
+    if (status !== 'ENTREGUE') {
+      return res.status(400).json({ erro: 'O entregador só pode confirmar a entrega (ENTREGUE).' });
     }
-    const entrega = await prisma.entrega.findUnique({ where: { pedidoId } });
+    const entrega = await prisma.entrega.findUnique({ where: { pedidoId }, include: { pedido: { select: { status: true } } } });
     if (!entrega) return res.status(404).json({ erro: 'Entrega não encontrada para este pedido.' });
     const ehDono = entrega.entregadorId === meuId;
     const ehGestor = req.usuario.papel === 'ADMIN' || req.usuario.papel === 'OPERADOR';
     if (!ehDono && !ehGestor) return res.status(403).json({ erro: 'Esta entrega não está atribuída a você.' });
+    if (entrega.pedido.status !== 'EM_ROTA') {
+      return res.status(409).json({ erro: 'Só dá pra confirmar a entrega depois que a loja registrar a saída.' });
+    }
 
-    await prisma.pedido.update({ where: { id: pedidoId }, data: { status } });
+    await prisma.pedido.update({ where: { id: pedidoId }, data: { status: 'ENTREGUE' } });
     await prisma.entrega.update({
       where: { pedidoId },
-      data: status === 'EM_ROTA'
-        ? { saidaEm: entrega.saidaEm || new Date() }
-        : { entregueEm: new Date(), saidaEm: entrega.saidaEm || new Date() },
+      data: { entregueEm: new Date(), saidaEm: entrega.saidaEm || new Date() },
     });
-    res.json({ ok: true, status });
+    res.json({ ok: true, status: 'ENTREGUE' });
   })
 );
 
@@ -184,13 +186,49 @@ router.post(
     const pedido = await prisma.pedido.findUnique({ where: { id: pedidoId }, select: { id: true, status: true, deletadoEm: true } });
     if (!pedido || pedido.deletadoEm) return res.status(404).json({ erro: 'Pedido não encontrado.' });
     if (pedido.status !== 'SEPARADO') return res.status(409).json({ erro: 'Este pedido não está mais disponível.' });
+
+    const existente = await prisma.entrega.findUnique({ where: { pedidoId } });
+    if (existente) {
+      // Pedido foi direcionado a um entregador específico.
+      if (existente.entregadorId !== meuId) return res.status(409).json({ erro: 'Esta entrega foi direcionada a outro entregador.' });
+      if (existente.aceitoEm) return res.json({ ok: true }); // já aceito por mim
+      await prisma.entrega.update({ where: { pedidoId }, data: { aceitoEm: new Date() } });
+      return res.json({ ok: true });
+    }
     try {
-      await prisma.entrega.create({ data: { pedidoId, entregadorId: meuId } });
+      // Oferta aberta: quem aceita primeiro leva (pedidoId @unique garante).
+      await prisma.entrega.create({ data: { pedidoId, entregadorId: meuId, aceitoEm: new Date() } });
       res.status(201).json({ ok: true });
     } catch (e) {
       if (e && e.code === 'P2002') return res.status(409).json({ erro: 'Esta entrega já foi aceita por outro entregador.' });
       throw e;
     }
+  })
+);
+
+// GET /api/entregadores/me/direcionadas — pedidos direcionados a MIM, aguardando meu aceite
+router.get(
+  '/me/direcionadas',
+  autenticar,
+  exigirPapel('ENTREGADOR', 'ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const meuId = BigInt(req.usuario.id);
+    const pedidos = await prisma.pedido.findMany({
+      where: {
+        status: 'SEPARADO',
+        deletadoEm: null,
+        entrega: { is: { entregadorId: meuId, aceitoEm: null } },
+      },
+      orderBy: { pedidoEm: 'asc' },
+      take: 40,
+      include: {
+        cliente: { select: { nome: true, whatsapp: true } },
+        loja: { select: { nome: true } },
+        enderecoEntrega: true,
+        itens: { select: { quantidade: true, produto: { select: { nome: true } } } },
+      },
+    });
+    res.json(serializarBigInt({ data: pedidos }));
   })
 );
 

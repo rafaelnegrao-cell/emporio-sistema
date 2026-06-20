@@ -39,7 +39,7 @@ router.get(
         cliente: { select: { id: true, nome: true, whatsapp: true } },
         loja: { select: { id: true, nome: true } },
         itens: { select: { id: true } },
-        entrega: { select: { entregadorId: true, saidaEm: true, entregueEm: true, entregador: { select: { id: true, nome: true, telefone: true } } } },
+        entrega: { select: { entregadorId: true, atribuidaEm: true, aceitoEm: true, saidaEm: true, entregueEm: true, entregador: { select: { id: true, nome: true, telefone: true } } } },
       },
     });
 
@@ -73,10 +73,25 @@ router.patch(
   autenticar,
   exigirPapel('ADMIN', 'OPERADOR'),
   asyncHandler(async (req, res) => {
-    const { status } = req.body;
+    const { status, entregadorId } = req.body;
     if (!status) return res.status(400).json({ erro: 'status é obrigatório' });
     const id = BigInt(req.params.id);
-    const pedido = await prisma.pedido.update({ where: { id }, data: { status } });
+
+    const dataPedido = { status };
+    if (status === 'SEPARADO') {
+      const atual = await prisma.pedido.findUnique({ where: { id }, select: { separadoEm: true } });
+      if (atual && !atual.separadoEm) dataPedido.separadoEm = new Date();
+    }
+    const pedido = await prisma.pedido.update({ where: { id }, data: dataPedido });
+
+    // Modo direcionado: ao separar, manda pra UM entregador (fica aguardando o aceite dele).
+    if (status === 'SEPARADO' && entregadorId) {
+      await prisma.entrega.upsert({
+        where: { pedidoId: id },
+        update: { entregadorId: BigInt(entregadorId), atribuidaEm: new Date() },
+        create: { pedidoId: id, entregadorId: BigInt(entregadorId), atribuidaEm: new Date() },
+      });
+    }
 
     // Carimba horários na Entrega (se já houver entregador atribuído).
     if (status === 'EM_ROTA' || status === 'ENTREGUE') {
