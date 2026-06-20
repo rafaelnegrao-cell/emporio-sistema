@@ -25,6 +25,7 @@ const HMAP = {
   prazoMaxHoras: ['prazo max', 'prazo máx', 'prazo maximo', 'prazo máximo', 'prazo max (h)'],
   prioridade: ['prioridade'],
   bairros: ['bairros', 'bairro'],
+  cidades: ['cidades', 'cidade', 'cidades vizinhas', 'cidade vizinha'],
   cepInicio: ['cep inicio', 'cep início', 'cep de', 'cep inicial'],
   cepFim: ['cep fim', 'cep ate', 'cep até', 'cep final'],
 };
@@ -37,7 +38,7 @@ function mapHeaders(keys) {
   return out;
 }
 
-const FORM0 = { nome: '', taxaFrete: '', valorFreteGratis: '', taxaFreteAcimaDe: '', prazoMinHoras: '1', prazoMaxHoras: '24', prioridade: '0', bairros: '', cepInicio: '', cepFim: '' };
+const FORM0 = { nome: '', taxaFrete: '', valorFreteGratis: '', taxaFreteAcimaDe: '', prazoMinHoras: '1', prazoMaxHoras: '24', prioridade: '0', bairros: '', cidades: '', cepInicio: '', cepFim: '' };
 
 export default function ZonasPage() {
   const [lojas, setLojas] = useState([]);
@@ -85,6 +86,7 @@ export default function ZonasPage() {
       prazoMaxHoras: Math.max(1, parseInt(form.prazoMaxHoras, 10) || 24),
       prioridade: parseInt(form.prioridade, 10) || 0,
       bairros: splitBairros(form.bairros),
+      cidades: splitBairros(form.cidades),
       cepInicio: form.cepInicio.trim() || undefined,
       cepFim: form.cepFim.trim() || undefined,
     };
@@ -124,6 +126,7 @@ export default function ZonasPage() {
           prazoMaxHoras: map.prazoMaxHoras ? (parseInt(r[map.prazoMaxHoras], 10) || 24) : 24,
           prioridade: map.prioridade ? (parseInt(r[map.prioridade], 10) || 0) : 0,
           bairros: map.bairros ? splitBairros(r[map.bairros]) : [],
+          cidades: map.cidades ? splitBairros(r[map.cidades]) : [],
           cepInicio: map.cepInicio ? String(r[map.cepInicio] || '').replace(/\D/g, '') || undefined : undefined,
           cepFim: map.cepFim ? String(r[map.cepFim] || '').replace(/\D/g, '') || undefined : undefined,
         });
@@ -187,7 +190,7 @@ export default function ZonasPage() {
       {/* Lista */}
       <div className={`${card} mt-6 overflow-hidden`}>
         <div className="hidden grid-cols-[2fr_1fr_1fr_1fr_2fr_auto] gap-3 border-b border-[#e3ddcf] bg-[#faf8f2] px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a8678] md:grid">
-          <span>Zona</span><span>Frete</span><span>Frete grátis</span><span>Prazo</span><span>Bairros / CEP</span><span></span>
+          <span>Zona</span><span>Frete</span><span>Frete grátis</span><span>Prazo</span><span>Bairros / Cidades</span><span></span>
         </div>
         {loading ? (
           <div className="px-5 py-10 text-center text-[13px] text-[#8a8678]">Carregando…</div>
@@ -201,7 +204,8 @@ export default function ZonasPage() {
               <div className="text-[#3a3730]"><span className="md:hidden text-[#8a8678]">Grátis: </span>{z.valorFreteGratis ? `≥ ${BRL(z.valorFreteGratis)}` : '—'}</div>
               <div className="text-[#3a3730]"><span className="md:hidden text-[#8a8678]">Prazo: </span>{z.prazoMinHoras}–{z.prazoMaxHoras}h</div>
               <div className="text-[12.5px] text-[#6b685e]">
-                {z.bairros?.length ? z.bairros.slice(0, 4).join(', ') + (z.bairros.length > 4 ? ` +${z.bairros.length - 4}` : '') : ''}
+                {z.bairros?.length ? z.bairros.slice(0, 3).join(', ') + (z.bairros.length > 3 ? ` +${z.bairros.length - 3}` : '') : ''}
+                {z.cidades?.length ? <span className="block text-[#3f7d5b]">Cidades: {z.cidades.join(', ')}</span> : null}
                 {z.cepInicio && z.cepFim ? <span className="block text-[#8a8678]">CEP {z.cepInicio}–{z.cepFim}</span> : null}
               </div>
               <div className="flex gap-2 md:justify-end">
@@ -227,7 +231,7 @@ function ZonaDrawer({ modo, zona, lojaNome, onClose, onSave }) {
           valorFreteGratis: zona.valorFreteGratis != null ? String(zona.valorFreteGratis) : '',
           taxaFreteAcimaDe: zona.taxaFreteAcimaDe != null ? String(zona.taxaFreteAcimaDe) : '',
           prazoMinHoras: String(zona.prazoMinHoras ?? '1'), prazoMaxHoras: String(zona.prazoMaxHoras ?? '24'),
-          prioridade: String(zona.prioridade ?? '0'), bairros: (zona.bairros || []).join('; '),
+          prioridade: String(zona.prioridade ?? '0'), bairros: (zona.bairros || []).join('; '), cidades: (zona.cidades || []).join('; '),
           cepInicio: zona.cepInicio || '', cepFim: zona.cepFim || '',
         }
       : { ...FORM0 }
@@ -271,6 +275,11 @@ function ZonaDrawer({ modo, zona, lojaNome, onClose, onSave }) {
             <label className={lab}>Bairros atendidos</label>
             <textarea className={`${inp} h-24 resize-none`} value={f.bairros} onChange={(e) => set('bairros', e.target.value)} placeholder="Separe por ; ou vírgula. Ex.: Centro; Vila Ipiranga; Jardim Higienópolis" />
             <div className="mt-1 text-[11.5px] text-[#8a8678]">O pedido é casado pelo bairro do endereço (ignora acento/maiúscula).</div>
+          </div>
+          <div className="mb-3">
+            <label className={lab}>Cidades vizinhas atendidas</label>
+            <textarea className={`${inp} h-20 resize-none`} value={f.cidades} onChange={(e) => set('cidades', e.target.value)} placeholder="Separe por ; ou vírgula. Ex.: Cambé; Ibiporã" />
+            <div className="mt-1 text-[11.5px] text-[#8a8678]">Use para outras cidades no raio de entrega. A cidade tem prioridade sobre o bairro no cálculo.</div>
           </div>
           <div className="mb-3 grid grid-cols-2 gap-3">
             <div><label className={lab}>CEP de (opcional)</label><input className={inp} value={f.cepInicio} onChange={(e) => set('cepInicio', e.target.value)} inputMode="numeric" placeholder="86000000" /></div>
