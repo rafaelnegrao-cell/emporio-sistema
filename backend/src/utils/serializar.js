@@ -2,14 +2,17 @@
 
 /**
  * Converte BigInt -> string e Decimal -> number em objetos aninhados.
- * Use antes de res.json() em respostas que tenham IDs do Prisma.
+ * Use antes de res.json() em respostas que tenham IDs/valores do Prisma.
+ *
+ * Obs.: o Decimal do Prisma pode ter o construtor minificado (ex.: "Decimal2"),
+ * então a detecção é pelo método toNumber() — robusto a qualquer nome de classe.
  */
 function serializarBigInt(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return obj.toString();
   if (obj instanceof Date) return obj.toISOString();
-  if (obj && typeof obj === 'object' && obj.constructor?.name === 'Decimal') {
-    return Number(obj.toString());
+  if (obj && typeof obj === 'object' && (typeof obj.toNumber === 'function' || /Decimal/.test(obj.constructor && obj.constructor.name))) {
+    return typeof obj.toNumber === 'function' ? obj.toNumber() : Number(obj.toString());
   }
   if (Array.isArray(obj)) return obj.map(serializarBigInt);
   if (typeof obj === 'object') {
