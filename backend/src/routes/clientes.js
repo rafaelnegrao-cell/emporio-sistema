@@ -212,8 +212,9 @@ router.patch(
 
 /**
  * POST /api/clientes/importar
- * Body: { clientes: [{ nome, whatsapp, cpf?, email?, cidade?, bairro?, loja?, optIn?, pet?{nome,especie,raca} }] }
- * Upsert pelo WhatsApp (cria ou atualiza, sem duplicar). Retorna o resumo.
+ * Body: { clientes: [{ nome, whatsapp, cpf?, email?, cep?, logradouro?, numero?, complemento?, bairro?, cidade?, uf?, loja?, optIn?, pet?{nome,especie,raca} }] }
+ * Reconhece o cliente pelo CPF (chave principal); se não houver CPF, cai no WhatsApp.
+ * Cria/atualiza sem duplicar e grava o endereço completo na criação. Retorna o resumo.
  */
 router.post(
   '/importar',
@@ -230,44 +231,68 @@ router.post(
     const lojaPorNome = new Map(lojas.map((l) => [l.nome.trim().toLowerCase(), l.id]));
 
     for (const c of lista) {
-      const whatsapp = somenteDigitos(c.whatsapp);
-      if (!c.nome || !whatsapp) {
-        ignorados++;
-        continue;
-      }
-      const lojaPreferidaId = c.loja ? lojaPorNome.get(String(c.loja).trim().toLowerCase()) || null : null;
-      const existente = await prisma.cliente.findUnique({ where: { whatsapp } });
+      try {
+        const whatsapp = somenteDigitos(c.whatsapp);
+        const cpf = c.cpf ? somenteDigitos(c.cpf) : '';
+        if (!c.nome || !whatsapp) {
+          ignorados++;
+          continue;
+        }
+        const lojaPreferidaId = c.loja ? lojaPorNome.get(String(c.loja).trim().toLowerCase()) || null : null;
 
-      if (existente) {
-        await prisma.cliente.update({
-          where: { whatsapp },
-          data: {
-            nome: c.nome,
-            cpf: c.cpf || existente.cpf,
-            email: c.email || existente.email,
-            optInMarketing: c.optIn != null ? !!c.optIn : existente.optInMarketing,
-            ...(lojaPreferidaId && { lojaPreferidaId }),
-          },
-        });
-        atualizados++;
-      } else {
-        await prisma.cliente.create({
-          data: {
-            nome: c.nome,
-            whatsapp,
-            cpf: c.cpf || null,
-            email: c.email || null,
-            optInMarketing: !!c.optIn,
-            lojaPreferidaId,
-            enderecos: c.bairro || c.cidade
-              ? { create: { apelido: 'Casa', cep: c.cep || '', logradouro: '', numero: '', bairro: c.bairro || '', cidade: c.cidade || '', uf: 'PR', principal: true } }
-              : undefined,
-            pets: c.pet && c.pet.nome
-              ? { create: { nome: c.pet.nome, especie: c.pet.especie || 'CAO', raca: c.pet.raca || null } }
-              : undefined,
-          },
-        });
-        criados++;
+        // reconhece primeiro pelo CPF; sem CPF, cai no WhatsApp
+        let existente = null;
+        if (cpf) existente = await prisma.cliente.findUnique({ where: { cpf } });
+        if (!existente) existente = await prisma.cliente.findUnique({ where: { whatsapp } });
+
+        const temEndereco = c.cep || c.logradouro || c.bairro || c.cidade;
+        const enderecoData = temEndereco
+          ? {
+              apelido: 'Casa',
+              cep: somenteDigitos(c.cep) || '',
+              logradouro: c.logradouro || '',
+              numero: c.numero ? String(c.numero) : '',
+              complemento: c.complemento || null,
+              bairro: c.bairro || '',
+              cidade: c.cidade || '',
+              uf: (c.uf || 'PR').toString().toUpperCase().slice(0, 2),
+              principal: true,
+            }
+          : null;
+
+        if (existente) {
+          // atualiza dados; não mexe no WhatsApp (evita colisão de unicidade) nem nos endereços já cadastrados
+          await prisma.cliente.update({
+            where: { id: existente.id },
+            data: {
+              nome: c.nome,
+              cpf: cpf || existente.cpf,
+              email: c.email || existente.email,
+              optInMarketing: c.optIn != null ? !!c.optIn : existente.optInMarketing,
+              ...(lojaPreferidaId && { lojaPreferidaId }),
+            },
+          });
+          atualizados++;
+        } else {
+          await prisma.cliente.create({
+            data: {
+              nome: c.nome,
+              whatsapp,
+              cpf: cpf || null,
+              email: c.email || null,
+              optInMarketing: !!c.optIn,
+              lojaPreferidaId,
+              enderecos: enderecoData ? { create: enderecoData } : undefined,
+              pets: c.pet && c.pet.nome
+                ? { create: { nome: c.pet.nome, especie: c.pet.especie || 'CAO', raca: c.pet.raca || null } }
+                : undefined,
+            },
+          });
+          criados++;
+        }
+      } catch (_) {
+        // linha problemática (ex.: WhatsApp/CPF duplicado de outro cliente) não derruba o lote
+        ignorados++;
       }
     }
 
