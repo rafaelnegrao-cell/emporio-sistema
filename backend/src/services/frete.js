@@ -1,44 +1,54 @@
 // Serviço de cálculo de frete
-// Regra: encontra a zona de entrega que atende o CEP/bairro, da loja escolhida
+// Regra: encontra a zona de entrega que atende o destino, da loja escolhida.
+// Precedência de match: 1) faixa de CEP  2) CIDADE (desambigua cidades vizinhas)  3) BAIRRO (cidade de origem)
 const { prisma } = require('../lib/prisma');
+
+const _norm = (x) => (x == null ? '' : String(x)).toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const _normBairro = (x) => _norm(x).replace(/^(jardim|jd|jdim|vila|vl|conjunto|conj|cj|parque|pq|residencial|resid|chacara|gleba|setor)\s+/i, '').trim();
 
 /**
  * Calcula o frete para uma entrega.
  * @param {Object} params
  * @param {BigInt} params.lojaId - Loja que vai despachar
- * @param {string} params.cep - CEP destino (apenas dígitos)
+ * @param {string} params.cep - CEP destino
  * @param {string} params.bairro - Bairro destino
- * @param {number} params.valorPedido - Valor do pedido para validar frete grátis
+ * @param {string} params.cidade - Cidade destino
+ * @param {number} params.valorPedido - Valor do pedido (para frete grátis)
  * @returns {Promise<{atendido: boolean, taxa: number, prazoMinHoras?: number, prazoMaxHoras?: number, zonaId?: string}>}
  */
-async function calcularFrete({ lojaId, cep, bairro, valorPedido }) {
+async function calcularFrete({ lojaId, cep, bairro, cidade, valorPedido }) {
   const cepLimpo = (cep || '').replace(/\D/g, '');
 
-  // Busca zonas ativas dessa loja, ordenadas por prioridade
   const zonas = await prisma.zonaEntrega.findMany({
     where: { lojaId, ativa: true },
-    orderBy: { prioridade: 'desc' }
+    orderBy: { prioridade: 'desc' },
   });
 
-  // Encontra a primeira zona que atende
   let zonaEncontrada = null;
-  for (const zona of zonas) {
-    // Match por faixa de CEP
-    if (zona.cepInicio && zona.cepFim) {
-      if (cepLimpo >= zona.cepInicio.replace(/\D/g, '') && cepLimpo <= zona.cepFim.replace(/\D/g, '')) {
-        zonaEncontrada = zona;
-        break;
-      }
+
+  // 1) Faixa de CEP (mais especifico)
+  for (const z of zonas) {
+    if (z.cepInicio && z.cepFim) {
+      const ini = z.cepInicio.replace(/\D/g, '');
+      const fim = z.cepFim.replace(/\D/g, '');
+      if (cepLimpo && cepLimpo >= ini && cepLimpo <= fim) { zonaEncontrada = z; break; }
     }
-    // Match por bairro (ignora acento e maiúsc/minúsc)
-    if (zona.bairros && bairro) {
-      const norm = (x) => (x || '').toString().toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const alvo = norm(bairro);
-      const match = zona.bairros.some((b) => norm(b) === alvo);
-      if (match) {
-        zonaEncontrada = zona;
-        break;
-      }
+  }
+
+  // 2) Cidade (resolve cidades vizinhas: Cambe, Ibipora, etc.)
+  if (!zonaEncontrada && cidade) {
+    const alvo = _norm(cidade);
+    for (const z of zonas) {
+      if (z.cidades && z.cidades.some((c) => _norm(c) === alvo)) { zonaEncontrada = z; break; }
+    }
+  }
+
+  // 3) Bairro (cidade de origem da loja) — casa por nome exato OU ignorando prefixo (Jardim/Vila/Conj.)
+  if (!zonaEncontrada && bairro) {
+    const alvo = _norm(bairro);
+    const alvoB = _normBairro(bairro);
+    for (const z of zonas) {
+      if (z.bairros && z.bairros.some((b) => _norm(b) === alvo || _normBairro(b) === alvoB)) { zonaEncontrada = z; break; }
     }
   }
 
@@ -46,15 +56,10 @@ async function calcularFrete({ lojaId, cep, bairro, valorPedido }) {
     return { atendido: false, taxa: 0 };
   }
 
-  // Determina a taxa
   let taxa = Number(zonaEncontrada.taxaFrete);
-
-  // Frete grátis se aplicável
   if (zonaEncontrada.valorFreteGratis && valorPedido >= Number(zonaEncontrada.valorFreteGratis)) {
     taxa = 0;
-  }
-  // Taxa diferente acima de certo valor (opcional)
-  else if (zonaEncontrada.taxaFreteAcimaDe && valorPedido >= Number(zonaEncontrada.taxaFreteAcimaDe)) {
+  } else if (zonaEncontrada.taxaFreteAcimaDe && valorPedido >= Number(zonaEncontrada.taxaFreteAcimaDe)) {
     taxa = Number(zonaEncontrada.taxaFreteAcimaDe);
   }
 
@@ -63,7 +68,7 @@ async function calcularFrete({ lojaId, cep, bairro, valorPedido }) {
     taxa,
     prazoMinHoras: zonaEncontrada.prazoMinHoras,
     prazoMaxHoras: zonaEncontrada.prazoMaxHoras,
-    zonaId: zonaEncontrada.id.toString()
+    zonaId: zonaEncontrada.id.toString(),
   };
 }
 
