@@ -1,60 +1,76 @@
 // frontend/src/app/entregador/page.js
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { MapPin, Phone, Package, CheckCircle2, Navigation, RefreshCw, LogOut } from 'lucide-react';
-import { api } from '../../lib/api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { MapPin, Phone, Package, CheckCircle2, Navigation, RefreshCw, LogOut, Hand } from 'lucide-react';
 
-const BRL = (n) =>
-  n == null ? '' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
+// Cliente próprio do app do entregador — chave de login SEPARADA do admin
+const BASE = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
+const TKEY = 'emporio_entregador_token';
+async function req(path, { method = 'GET', body } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  const t = typeof window !== 'undefined' ? window.localStorage.getItem(TKEY) : null;
+  if (t) headers.Authorization = `Bearer ${t}`;
+  const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+  if (!res.ok) { let m = `Erro ${res.status}`; try { const j = await res.json(); m = j.erro || j.message || m; } catch (_) {} throw new Error(m); }
+  return res.status === 204 ? null : res.json();
+}
+const api = { get: (p) => req(p), post: (p, b) => req(p, { method: 'POST', body: b }), patch: (p, b) => req(p, { method: 'PATCH', body: b }) };
+
+const BRL = (n) => (n == null ? '' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }));
 const hora = (d) => (d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
 const soDig = (s) => String(s || '').replace(/\D/g, '');
-
 const PENDENTES = ['ACEITO', 'EM_SEPARACAO', 'SEPARADO', 'EM_ROTA'];
-
-function getToken() {
-  if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem('emporio_token');
-}
 
 export default function EntregadorPage() {
   const [logado, setLogado] = useState(false);
   const [nome, setNome] = useState('');
+  const [disponiveis, setDisponiveis] = useState([]);
   const [entregas, setEntregas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState(null);
-  const [acao, setAcao] = useState(null); // pedidoId em processamento
+  const [acao, setAcao] = useState(null);
+  const timer = useRef(null);
 
-  useEffect(() => { setLogado(!!getToken()); }, []);
+  useEffect(() => { setLogado(!!(typeof window !== 'undefined' && window.localStorage.getItem(TKEY))); }, []);
 
-  const carregar = useCallback(async () => {
-    setLoading(true); setErro(null);
+  const carregar = useCallback(async (silent) => {
+    if (!silent) setLoading(true);
     try {
-      const r = await api.get('/api/entregadores/me/entregas');
-      setEntregas(Array.isArray(r?.data) ? r.data : []);
-    } catch (e) { setErro(e.message); }
-    finally { setLoading(false); }
+      const [d, e] = await Promise.all([api.get('/api/entregadores/me/disponiveis'), api.get('/api/entregadores/me/entregas')]);
+      setDisponiveis(Array.isArray(d?.data) ? d.data : []);
+      setEntregas(Array.isArray(e?.data) ? e.data : []);
+      setErro(null);
+    } catch (err) { if (!silent) setErro(err.message); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
-  useEffect(() => { if (logado) carregar(); }, [logado, carregar]);
+  useEffect(() => {
+    if (!logado) return;
+    carregar();
+    timer.current = setInterval(() => carregar(true), 25000); // verifica novas entregas sozinho
+    return () => clearInterval(timer.current);
+  }, [logado, carregar]);
 
-  const onLogin = (info) => { if (info?.nome) setNome(info.nome); setLogado(true); };
-  const sair = () => { window.localStorage.removeItem('emporio_token'); setLogado(false); setEntregas([]); };
+  const sair = () => { window.localStorage.removeItem(TKEY); setLogado(false); setDisponiveis([]); setEntregas([]); };
 
+  const aceitar = async (pedidoId) => {
+    setAcao(pedidoId); setErro(null);
+    try { await api.post(`/api/entregadores/me/entregas/${pedidoId}/aceitar`); await carregar(true); }
+    catch (e) { setErro(e.message); await carregar(true); }
+    finally { setAcao(null); }
+  };
   const mudarStatus = async (pedidoId, status) => {
     setAcao(pedidoId); setErro(null);
-    try {
-      await api.patch(`/api/entregadores/me/entregas/${pedidoId}/status`, { status });
-      await carregar();
-    } catch (e) { setErro(e.message); }
+    try { await api.patch(`/api/entregadores/me/entregas/${pedidoId}/status`, { status }); await carregar(true); }
+    catch (e) { setErro(e.message); }
     finally { setAcao(null); }
   };
 
-  if (!logado) return <Login onLogin={onLogin} />;
+  if (!logado) return <Login onLogin={(info) => { if (info?.nome) setNome(info.nome); setLogado(true); }} />;
 
   const pendentes = entregas.filter((e) => PENDENTES.includes(e.status));
   const entregues = entregas.filter((e) => e.status === 'ENTREGUE');
-  const emRota = pendentes.filter((e) => e.status === 'EM_ROTA').length;
 
   return (
     <div className="min-h-screen bg-[#F4F1EA] text-[#2B2B2B]">
@@ -65,7 +81,7 @@ export default function EntregadorPage() {
             <div className="text-[15px] font-semibold">{nome || 'Entregador'}</div>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={carregar} className="rounded-full p-2 hover:bg-white/10" title="Atualizar"><RefreshCw size={18} /></button>
+            <button onClick={() => carregar()} className="rounded-full p-2 hover:bg-white/10" title="Atualizar"><RefreshCw size={18} /></button>
             <button onClick={sair} className="rounded-full p-2 hover:bg-white/10" title="Sair"><LogOut size={18} /></button>
           </div>
         </div>
@@ -73,31 +89,38 @@ export default function EntregadorPage() {
 
       <main className="mx-auto max-w-md px-4 py-4">
         <div className="mb-4 grid grid-cols-3 gap-2">
-          <Stat n={pendentes.length} label="A entregar" />
-          <Stat n={emRota} label="Em rota" />
+          <Stat n={disponiveis.length} label="Disponíveis" destaque />
+          <Stat n={pendentes.length} label="Minhas" />
           <Stat n={entregues.length} label="Entregues" />
         </div>
 
         {erro && <div className="mb-3 rounded-lg border border-[#e7c9c4] bg-[#fbeeec] px-3 py-2 text-[13px] text-[#b23b3b]">{erro}</div>}
 
         {loading ? (
-          <div className="py-12 text-center text-[14px] text-[#8a8678]">Carregando suas entregas…</div>
-        ) : entregas.length === 0 ? (
-          <div className="py-12 text-center text-[14px] text-[#8a8678]">Nenhuma entrega atribuída a você no momento.</div>
+          <div className="py-12 text-center text-[14px] text-[#8a8678]">Carregando…</div>
         ) : (
           <>
+            {disponiveis.length > 0 && (
+              <Secao titulo={`Disponíveis para retirada (${disponiveis.length})`}>
+                {disponiveis.map((e) => <Card key={e.id} e={e} modo="disponivel" acao={acao} onAceitar={aceitar} />)}
+              </Secao>
+            )}
             {pendentes.length > 0 && (
-              <Secao titulo="A entregar">
-                {pendentes.map((e) => <Card key={e.id} e={e} acao={acao} onStatus={mudarStatus} />)}
+              <Secao titulo="Minhas entregas">
+                {pendentes.map((e) => <Card key={e.id} e={e} modo="minha" acao={acao} onStatus={mudarStatus} />)}
               </Secao>
             )}
             {entregues.length > 0 && (
               <Secao titulo="Entregues">
-                {entregues.map((e) => <Card key={e.id} e={e} acao={acao} onStatus={mudarStatus} />)}
+                {entregues.map((e) => <Card key={e.id} e={e} modo="minha" acao={acao} onStatus={mudarStatus} />)}
               </Secao>
+            )}
+            {disponiveis.length === 0 && entregas.length === 0 && (
+              <div className="py-12 text-center text-[14px] text-[#8a8678]">Nenhuma entrega disponível no momento.</div>
             )}
           </>
         )}
+        <div className="mt-6 text-center text-[11px] text-[#a9a596]">Atualizando automaticamente a cada 25s</div>
       </main>
     </div>
   );
@@ -108,24 +131,21 @@ function Login({ onLogin }) {
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState(null);
   const [entrando, setEntrando] = useState(false);
-
   const entrar = async () => {
     if (!email || !senha) return setErro('Informe e-mail e senha.');
     setErro(null); setEntrando(true);
     try {
       const r = await api.post('/api/auth/operador/login', { email: email.trim().toLowerCase(), senha });
       if (!r?.token) throw new Error('Resposta inválida do servidor.');
-      window.localStorage.setItem('emporio_token', r.token);
+      window.localStorage.setItem(TKEY, r.token);
       onLogin(r.usuario || {});
     } catch (e) { setErro(e.message); setEntrando(false); }
   };
-
   const inp = 'w-full rounded-lg border border-[#cfd8cb] bg-white px-3 py-3 text-[15px] outline-none focus:border-[#B8935A]';
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#16291f] px-5">
       <div className="w-full max-w-sm rounded-2xl bg-[#F4F1EA] p-6 shadow-xl">
-        <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-lg bg-[#1F3A2E] font-serif text-[16px] font-bold text-[#B8935A]">RN</div>
+        <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#1F3A2E] font-serif text-[16px] font-bold text-[#B8935A]">RN</div>
         <h1 className="mt-3 font-serif text-[22px] font-bold text-[#1F3A2E]">Empório · Entregas</h1>
         <p className="mb-4 text-[13px] text-[#6b685e]">Entre com seu e-mail e senha de entregador.</p>
         <div className="space-y-3">
@@ -139,9 +159,9 @@ function Login({ onLogin }) {
   );
 }
 
-function Stat({ n, label }) {
+function Stat({ n, label, destaque }) {
   return (
-    <div className="rounded-xl border border-[#e3ddcf] bg-white px-2 py-3 text-center">
+    <div className={`rounded-xl border px-2 py-3 text-center ${destaque && n > 0 ? 'border-[#B8935A] bg-[#fbf3e6]' : 'border-[#e3ddcf] bg-white'}`}>
       <div className="font-serif text-[22px] font-bold text-[#1F3A2E]">{n}</div>
       <div className="text-[11px] text-[#8a8678]">{label}</div>
     </div>
@@ -157,14 +177,17 @@ function Secao({ titulo, children }) {
   );
 }
 
-function Card({ e, acao, onStatus }) {
+function Card({ e, modo, acao, onAceitar, onStatus }) {
   const end = e.enderecoEntrega || {};
   const endLinha = [end.logradouro, end.numero].filter(Boolean).join(', ') + (end.complemento ? ` · ${end.complemento}` : '');
   const endLinha2 = [end.bairro, end.cidade].filter(Boolean).join(' · ');
   const mapsQuery = encodeURIComponent([end.logradouro, end.numero, end.bairro, end.cidade, end.cep].filter(Boolean).join(', '));
   const ocupado = acao === e.id;
+  const disponivel = modo === 'disponivel';
   const entregue = e.status === 'ENTREGUE';
   const emRota = e.status === 'EM_ROTA';
+  const tag = disponivel ? 'Disponível' : entregue ? 'Entregue' : emRota ? 'Em rota' : 'Indo retirar';
+  const tagCls = disponivel ? 'bg-[#fbf1dd] text-[#8a6a1f]' : entregue ? 'bg-[#e6f0e9] text-[#2f6b48]' : emRota ? 'bg-[#e7eef9] text-[#365b9a]' : 'bg-[#eef1ec] text-[#5b6b5f]';
 
   return (
     <div className={`rounded-xl border bg-white p-4 ${entregue ? 'border-[#cfe0d4] opacity-80' : 'border-[#e3ddcf]'}`}>
@@ -173,9 +196,7 @@ function Card({ e, acao, onStatus }) {
           <div className="truncate text-[15px] font-semibold text-[#1F3A2E]">{e.cliente?.nome || 'Cliente'}</div>
           <div className="text-[12px] text-[#8a8678]">Pedido {e.numero} · {e.loja?.nome || ''}</div>
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${entregue ? 'bg-[#e6f0e9] text-[#2f6b48]' : emRota ? 'bg-[#fbf1dd] text-[#8a6a1f]' : 'bg-[#eef1ec] text-[#5b6b5f]'}`}>
-          {entregue ? 'Entregue' : emRota ? 'Em rota' : 'A sair'}
-        </span>
+        <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${tagCls}`}>{tag}</span>
       </div>
 
       <div className="mt-3 flex items-start gap-2 text-[13.5px] text-[#3a3730]">
@@ -203,7 +224,13 @@ function Card({ e, acao, onStatus }) {
         </div>
       </div>
 
-      {!entregue && (
+      {disponivel ? (
+        <div className="mt-3">
+          <button onClick={() => onAceitar(e.id)} disabled={ocupado} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#1F3A2E] px-4 py-2.5 text-[14px] font-semibold text-[#F4F1EA] hover:bg-[#16291f] disabled:opacity-50">
+            <Hand size={17} /> {ocupado ? 'Aceitando…' : 'Aceitar e ir retirar'}
+          </button>
+        </div>
+      ) : !entregue ? (
         <div className="mt-3">
           {emRota ? (
             <button onClick={() => onStatus(e.id, 'ENTREGUE')} disabled={ocupado} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#2f6b48] px-4 py-2.5 text-[14px] font-semibold text-white hover:bg-[#285c3e] disabled:opacity-50">
@@ -211,12 +238,11 @@ function Card({ e, acao, onStatus }) {
             </button>
           ) : (
             <button onClick={() => onStatus(e.id, 'EM_ROTA')} disabled={ocupado} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#B8935A] px-4 py-2.5 text-[14px] font-semibold text-[#16291f] hover:bg-[#a8824a] disabled:opacity-50">
-              <Navigation size={17} /> {ocupado ? 'Salvando…' : 'Sair para entrega'}
+              <Navigation size={17} /> {ocupado ? 'Salvando…' : 'Retirei — sair para entrega'}
             </button>
           )}
         </div>
-      )}
-      {entregue && (
+      ) : (
         <div className="mt-3 flex items-center gap-2 text-[13px] font-medium text-[#2f6b48]">
           <CheckCircle2 size={16} /> Entregue {e.entrega?.entregueEm ? `às ${hora(e.entrega.entregueEm)}` : ''}
         </div>
