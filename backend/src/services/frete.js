@@ -30,10 +30,11 @@ async function calcularFrete({ lojaId, cep, bairro, valorPedido }) {
         break;
       }
     }
-    // Match por bairro (case-insensitive)
+    // Match por bairro (ignora acento e maiúsc/minúsc)
     if (zona.bairros && bairro) {
-      const bairroNormalizado = bairro.toLowerCase().trim();
-      const match = zona.bairros.some(b => b.toLowerCase().trim() === bairroNormalizado);
+      const norm = (x) => (x || '').toString().toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const alvo = norm(bairro);
+      const match = zona.bairros.some((b) => norm(b) === alvo);
       if (match) {
         zonaEncontrada = zona;
         break;
