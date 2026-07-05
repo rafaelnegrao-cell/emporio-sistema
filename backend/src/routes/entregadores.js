@@ -160,13 +160,21 @@ router.patch(
 );
 
 // GET /api/entregadores/me/disponiveis — pedidos SEPARADO ainda sem entregador (oferta a todos)
+// Escopo por loja: entregador só vê pedidos da loja em que ele trabalha.
+// Fallback seguro: se o usuário não tem lojaId (ex.: ADMIN/OPERADOR usando o app,
+// ou entregador legado sem loja definida), mostra tudo — evita esconder pedidos
+// por engano de cadastro.
 router.get(
   '/me/disponiveis',
   autenticar,
   exigirPapel('ENTREGADOR', 'ADMIN', 'OPERADOR'),
   asyncHandler(async (req, res) => {
+    const meuId = BigInt(req.usuario.id);
+    const eu = await prisma.usuario.findUnique({ where: { id: meuId }, select: { lojaId: true } });
+    const where = { status: 'SEPARADO', deletadoEm: null, entrega: { is: null } };
+    if (eu && eu.lojaId) where.lojaId = eu.lojaId;
     const pedidos = await prisma.pedido.findMany({
-      where: { status: 'SEPARADO', deletadoEm: null, entrega: { is: null } },
+      where,
       orderBy: { pedidoEm: 'asc' },
       take: 40,
       include: {
