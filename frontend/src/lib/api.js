@@ -1,12 +1,29 @@
 // frontend/src/lib/api.js
 // Cliente HTTP do backend. Lê a URL pública do Railway de NEXT_PUBLIC_API_URL
 // (sem barra final) e injeta o JWT salvo no login.
+//
+// Sessão expirada: se uma chamada volta 401 e havia token salvo, o token
+// venceu (validade de 7 dias). Antes, o painel ficava num estado confuso
+// ("logado" na aparência, mas nada carregava). Agora: limpa o token, marca
+// um aviso e redireciona para /login automaticamente.
 
 const BASE = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
 
 function token() {
   if (typeof window === 'undefined') return null;
   return window.localStorage.getItem('emporio_token');
+}
+
+// Encerra a sessão vencida e leva para a tela de login (com aviso).
+function sessaoExpirou() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem('emporio_token');
+    window.sessionStorage.setItem('emporio_sessao_expirada', '1');
+  } catch (_) {}
+  if (window.location.pathname !== '/login') {
+    window.location.replace('/login');
+  }
 }
 
 async function request(path, { method = 'GET', body, params } = {}) {
@@ -26,6 +43,14 @@ async function request(path, { method = 'GET', body, params } = {}) {
     body: body ? JSON.stringify(body) : undefined,
     cache: 'no-store',
   });
+
+  // 401 com token presente = token vencido/ inválido → encerra a sessão.
+  // (Sem token presente, deixa seguir o fluxo normal de erro — ex.: login errado.)
+  if (res.status === 401 && t) {
+    sessaoExpirou();
+    throw new Error('Sessão expirada. Entre novamente.');
+  }
+
   if (!res.ok) {
     let msg = `Erro ${res.status}`;
     try {

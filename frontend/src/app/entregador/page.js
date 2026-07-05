@@ -12,6 +12,17 @@ async function req(path, { method = 'GET', body } = {}) {
   const t = typeof window !== 'undefined' ? window.localStorage.getItem(TKEY) : null;
   if (t) headers.Authorization = `Bearer ${t}`;
   const res = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+  // Sessão expirada (401 com token salvo): limpa o token, marca o aviso e
+  // recarrega — a página volta na tela de login com a explicação, em vez de
+  // ficar mostrando "Erro 401" nas listas.
+  if (res.status === 401 && t && typeof window !== 'undefined') {
+    try {
+      window.localStorage.removeItem(TKEY);
+      window.sessionStorage.setItem('emporio_entregador_expirado', '1');
+    } catch (_) {}
+    window.location.replace('/entregador');
+    throw new Error('Sessão expirada. Entre novamente.');
+  }
   if (!res.ok) { let m = `Erro ${res.status}`; try { const j = await res.json(); m = j.erro || j.message || m; } catch (_) {} throw new Error(m); }
   return res.status === 204 ? null : res.json();
 }
@@ -148,10 +159,20 @@ function Login({ onLogin }) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState(null);
+  const [aviso, setAviso] = useState(null);
   const [entrando, setEntrando] = useState(false);
+  // Se caímos aqui por sessão vencida, mostra o aviso (uma vez) e limpa a flag.
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem('emporio_entregador_expirado') === '1') {
+        window.sessionStorage.removeItem('emporio_entregador_expirado');
+        setAviso('Sua sessão expirou. Entre novamente para continuar.');
+      }
+    } catch (_) {}
+  }, []);
   const entrar = async () => {
     if (!email || !senha) return setErro('Informe e-mail e senha.');
-    setErro(null); setEntrando(true);
+    setErro(null); setAviso(null); setEntrando(true);
     try {
       const r = await api.post('/api/auth/operador/login', { email: email.trim().toLowerCase(), senha });
       if (!r?.token) throw new Error('Resposta inválida do servidor.');
@@ -166,6 +187,7 @@ function Login({ onLogin }) {
         <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#1F3A2E] font-serif text-[16px] font-bold text-[#B8935A]">RN</div>
         <h1 className="mt-3 font-serif text-[22px] font-bold text-[#1F3A2E]">Empório · Entregas</h1>
         <p className="mb-4 text-[13px] text-[#6b685e]">Entre com seu e-mail e senha de entregador.</p>
+        {aviso && <div className="mb-3 rounded-lg border border-[#e6cf94] bg-[#fdf8ec] px-3 py-2 text-[13px] text-[#9a6a1f]">{aviso}</div>}
         <div className="space-y-3">
           <input className={inp} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" inputMode="email" autoCapitalize="none" />
           <input className={inp} type="password" value={senha} onChange={(e) => setSenha(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') entrar(); }} placeholder="Senha" />
