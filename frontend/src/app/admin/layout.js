@@ -3,7 +3,9 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import { NOVIDADES, NOVIDADES_LS_KEY, formatarData, contarNaoVistas } from '../../lib/novidades';
 
 const NAV = [
   { grp: 'Operação' },
@@ -112,6 +114,171 @@ export default function AdminLayout({ children }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+
+      {/* Central de Novidades — sino fixo no topo direito da viewport */}
+      <SinoNovidades />
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Central de Novidades
+// - Sino fixo no canto superior direito (fora do fluxo, não empurra layout).
+// - Badge vermelho com quantidade de releases ainda não vistos.
+// - Painel renderizado via createPortal(document.body) para não herdar
+//   CSS de contêineres pais (mesma solução que usamos no Paula Negrão).
+// ─────────────────────────────────────────────────────────────
+
+const TIPO_ESTILO = {
+  NOVIDADE: { fundo: '#fbf3e6', texto: '#8a6a1f', borda: '#e8d9b3', label: 'Novidade' },
+  MELHORIA: { fundo: '#e6f0e9', texto: '#2f6b48', borda: '#c9decf', label: 'Melhoria' },
+  CORRECAO: { fundo: '#fdf3f2', texto: '#b23b3b', borda: '#e7c9c4', label: 'Correção' },
+};
+
+function SinoNovidades() {
+  const [aberto, setAberto] = useState(false);
+  const [naoVistas, setNaoVistas] = useState(0);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const dataVista = localStorage.getItem(NOVIDADES_LS_KEY);
+      setNaoVistas(contarNaoVistas(dataVista));
+    } catch (_) {
+      setNaoVistas(0);
+    }
+  }, []);
+
+  // Fechar com ESC quando o painel está aberto.
+  useEffect(() => {
+    if (!aberto) return;
+    function onKey(e) { if (e.key === 'Escape') setAberto(false); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [aberto]);
+
+  function abrir() {
+    setAberto(true);
+    setNaoVistas(0);
+    try {
+      if (NOVIDADES.length > 0) localStorage.setItem(NOVIDADES_LS_KEY, NOVIDADES[0].data);
+    } catch (_) {}
+  }
+
+  const totalRecursos = NOVIDADES.reduce((soma, v) => soma + (v.itens ? v.itens.length : 0), 0);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={abrir}
+        aria-label={`Central de novidades${naoVistas > 0 ? ` (${naoVistas} sem ler)` : ''}`}
+        className="fixed right-4 top-4 z-40 grid h-10 w-10 place-items-center rounded-full border border-[#e3ddcf] bg-[#FBF9F4] text-[#8a6a1f] shadow-sm transition hover:border-[#B8935A] hover:text-[#B8935A]"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-[19px] w-[19px]">
+          <path d="M6 8a6 6 0 1112 0c0 7 3 8 3 8H3s3-1 3-8" />
+          <path d="M10.3 21a1.94 1.94 0 003.4 0" />
+        </svg>
+        {naoVistas > 0 && (
+          <span
+            className="absolute -right-1 -top-1 grid min-w-[18px] h-[18px] px-[5px] place-items-center rounded-full bg-[#b23b3b] text-[10px] font-bold text-white leading-none"
+            aria-hidden="true"
+          >
+            {naoVistas}
+          </span>
+        )}
+      </button>
+
+      {mounted && aberto && createPortal(
+        <PainelNovidades onFechar={() => setAberto(false)} totalRecursos={totalRecursos} />,
+        document.body
+      )}
+    </>
+  );
+}
+
+function PainelNovidades({ onFechar, totalRecursos }) {
+  return (
+    <div
+      className="fixed inset-0 z-50"
+      style={{ textTransform: 'none' }}
+      onClick={onFechar}
+    >
+      {/* backdrop */}
+      <div className="absolute inset-0 bg-black/30" />
+
+      {/* painel */}
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="absolute right-4 top-16 w-[min(400px,calc(100vw-32px))] max-h-[min(560px,calc(100vh-96px))] overflow-hidden rounded-2xl border border-[#e3ddcf] bg-white shadow-2xl"
+        style={{ textTransform: 'none' }}
+      >
+        {/* cabeçalho */}
+        <div className="flex items-start justify-between gap-3 border-b border-[#f0ece0] px-5 py-4">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[.16em] text-[#B8935A]">Empório · Backoffice</div>
+            <h2 className="mt-1 font-serif text-[19px] font-bold text-[#1F3A2E]">Central de novidades</h2>
+            <p className="mt-0.5 text-[12px] text-[#8a8678]">
+              Atualizações e correções do sistema{totalRecursos > 0 ? ` · ${totalRecursos} ${totalRecursos === 1 ? 'item registrado' : 'itens registrados'}` : ''}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onFechar}
+            aria-label="Fechar"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[#6b685e] hover:bg-[#f4f1ea] hover:text-[#1F3A2E]"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+
+        {/* corpo */}
+        <div className="max-h-[calc(min(560px,100vh-96px)-96px)] overflow-y-auto px-5 py-3">
+          {NOVIDADES.length === 0 ? (
+            <div className="py-8 text-center text-[13px] text-[#8a8678]">
+              Nenhuma novidade registrada ainda.
+            </div>
+          ) : (
+            NOVIDADES.map((v, i) => <GrupoVersao key={v.versao + v.data} versao={v} primeiro={i === 0} />)
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GrupoVersao({ versao, primeiro }) {
+  return (
+    <section className={`${primeiro ? 'pt-1' : 'pt-4 mt-4 border-t border-[#f0ece0]'} pb-1`}>
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <div className="font-serif text-[14px] font-bold text-[#1F3A2E]">
+          {formatarData(versao.data)}
+        </div>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#B8935A]">
+          {versao.versao}
+        </span>
+      </div>
+      <ul className="space-y-2">
+        {versao.itens.map((it, idx) => <Item key={idx} item={it} />)}
+      </ul>
+    </section>
+  );
+}
+
+function Item({ item }) {
+  const est = TIPO_ESTILO[item.tipo] || TIPO_ESTILO.MELHORIA;
+  return (
+    <li className="flex items-start gap-2.5 rounded-lg border border-[#f0ece0] bg-[#fbf9f4] px-3 py-2.5">
+      <span
+        className="mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider"
+        style={{ backgroundColor: est.fundo, color: est.texto, borderColor: est.borda }}
+      >
+        {est.label}
+      </span>
+      <p className="text-[13px] leading-snug text-[#2B2B2B]">{item.texto}</p>
+    </li>
   );
 }
