@@ -113,7 +113,7 @@ export default function AdminLayout({ children }) {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col pr-16">{children}</div>
 
       {/* Central de Novidades — sino fixo no topo direito da viewport */}
       <SinoNovidades />
