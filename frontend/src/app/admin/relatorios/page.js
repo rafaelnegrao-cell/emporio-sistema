@@ -121,6 +121,67 @@ export default function RelatoriosPage() {
               </div>
             </div>
 
+            {/* Satisfação do cliente (NPS) */}
+            {r.avaliacao && (
+              <Painel titulo="Satisfação do cliente (NPS)">
+                {r.avaliacao.respostas === 0 ? (
+                  <Vazio>Nenhuma avaliação no período. O link de avaliação vai na mensagem de WhatsApp do pedido entregue.</Vazio>
+                ) : (
+                  <>
+                    <div className="mb-3 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+                      <div className="rounded-xl border border-[#e3ddcf] bg-white px-4 py-3.5">
+                        <div className="text-[10.5px] font-semibold uppercase tracking-wide text-[#8a8678]">NPS</div>
+                        <div className="mt-1 font-serif text-[24px] font-bold" style={{ color: r.avaliacao.nps >= 50 ? '#2f6b48' : r.avaliacao.nps >= 0 ? '#9a6a1f' : '#b23b3b' }}>
+                          {r.avaliacao.nps > 0 ? '+' : ''}{r.avaliacao.nps}
+                        </div>
+                        <div className="text-[11.5px] text-[#9a9483]">promotores − detratores</div>
+                      </div>
+                      <div className="rounded-xl border border-[#e3ddcf] bg-white px-4 py-3.5">
+                        <div className="text-[10.5px] font-semibold uppercase tracking-wide text-[#8a8678]">Nota média</div>
+                        <div className="mt-1 font-serif text-[24px] font-bold text-[#1F3A2E]">{r.avaliacao.notaMedia != null ? r.avaliacao.notaMedia.toFixed(1) : '—'}<span className="text-[13px] text-[#9a9483]">/10</span></div>
+                        <div className="text-[11.5px] text-[#9a9483]">{r.avaliacao.respostas} resposta(s)</div>
+                      </div>
+                      <div className="rounded-xl border border-[#e3ddcf] bg-white px-4 py-3.5">
+                        <div className="text-[10.5px] font-semibold uppercase tracking-wide text-[#8a8678]">Taxa de resposta</div>
+                        <div className="mt-1 font-serif text-[24px] font-bold text-[#1F3A2E]">{pct(r.avaliacao.taxaRespostaPct)}</div>
+                        <div className="text-[11.5px] text-[#9a9483]">dos pedidos entregues</div>
+                      </div>
+                      <div className="rounded-xl border border-[#e3ddcf] bg-white px-4 py-3.5">
+                        <div className="text-[10.5px] font-semibold uppercase tracking-wide text-[#8a8678]">Distribuição</div>
+                        <div className="mt-2.5 flex h-[14px] w-full overflow-hidden rounded-full bg-[#f1efe9]" title={`${r.avaliacao.promotores} promotor(es) · ${r.avaliacao.neutros} neutro(s) · ${r.avaliacao.detratores} detrator(es)`}>
+                          {r.avaliacao.promotores > 0 && <div style={{ width: `${(r.avaliacao.promotores / r.avaliacao.respostas) * 100}%`, background: '#3f7d5b' }} />}
+                          {r.avaliacao.neutros > 0 && <div style={{ width: `${(r.avaliacao.neutros / r.avaliacao.respostas) * 100}%`, background: '#d9b25e' }} />}
+                          {r.avaliacao.detratores > 0 && <div style={{ width: `${(r.avaliacao.detratores / r.avaliacao.respostas) * 100}%`, background: '#b23b3b' }} />}
+                        </div>
+                        <div className="mt-1.5 text-[11px] text-[#9a9483]">
+                          <span className="font-semibold text-[#3f7d5b]">{r.avaliacao.promotores} promot.</span> · <span className="font-semibold text-[#9a6a1f]">{r.avaliacao.neutros} neutro(s)</span> · <span className="font-semibold text-[#b23b3b]">{r.avaliacao.detratores} detrat.</span>
+                        </div>
+                      </div>
+                    </div>
+                    {r.avaliacao.comentarios.length > 0 && (
+                      <div>
+                        <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8678]">Comentários recentes</div>
+                        {r.avaliacao.comentarios.map((c, i) => (
+                          <div key={i} className="mb-1.5 flex items-start gap-2.5 rounded-lg border border-[#f0ece0] bg-white px-3 py-2">
+                            <span
+                              className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold text-white"
+                              style={{ background: c.nota >= 9 ? '#3f7d5b' : c.nota >= 7 ? '#d9b25e' : '#b23b3b' }}
+                            >
+                              {c.nota}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[13px] italic text-[#3a3730]">“{c.comentario}”</p>
+                              <div className="text-[10.5px] text-[#9a9483]">Pedido {c.numero} · {c.respondidoEm ? new Date(c.respondidoEm).toLocaleDateString('pt-BR') : ''}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </Painel>
+            )}
+
             {/* Faturamento por dia */}
             <Painel titulo="Faturamento por dia">
               {r.porDia.length === 0 ? (
