@@ -177,6 +177,22 @@ export default function PedidosPage() {
     }
   }, [entregadores, carregar]);
 
+  // Reenvia o aviso de oferta aberta (push) aos entregadores da loja.
+  // Estado por pedido: 'enviando' | { enviados, entregadores } (some sozinho após 5s).
+  const [reoferta, setReoferta] = useState({});
+  const reofertar = useCallback(async (id) => {
+    setReoferta((m) => ({ ...m, [id]: 'enviando' }));
+    try {
+      const r = await api.post(`/api/pedidos/${id}/reofertar`);
+      setReoferta((m) => ({ ...m, [id]: { enviados: r && r.enviados != null ? r.enviados : 0, entregadores: r && r.entregadores != null ? r.entregadores : 0 } }));
+    } catch (e) {
+      setReoferta((m) => { const n = { ...m }; delete n[id]; return n; });
+      alert('Não consegui reenviar o aviso: ' + e.message);
+      return;
+    }
+    setTimeout(() => setReoferta((m) => { const n = { ...m }; delete n[id]; return n; }), 5000);
+  }, []);
+
   const proximo = (status) => {
     const i = FLUXO.indexOf(status);
     return i >= 0 && i < FLUXO.length - 1 ? FLUXO[i + 1] : null;
@@ -269,7 +285,7 @@ export default function PedidosPage() {
                 </div>
                 <div className="flex min-h-[120px] flex-col gap-2.5 p-2.5">
                   {itens.map((p) => (
-                    <Card key={p.id} p={p} col={col.key} entregadores={entregadores} onDirecionar={direcionar} onSaiuLoja={(id) => mudarStatus(id, 'EM_ROTA')} onDragStart={() => setDrag(String(p.id))} onClick={() => abrirDetalhe(p)} />
+                    <Card key={p.id} p={p} col={col.key} entregadores={entregadores} onDirecionar={direcionar} onSaiuLoja={(id) => mudarStatus(id, 'EM_ROTA')} onReofertar={reofertar} reoferta={reoferta[String(p.id)] || reoferta[p.id]} onDragStart={() => setDrag(String(p.id))} onClick={() => abrirDetalhe(p)} />
                   ))}
                   {itens.length === 0 && (
                     <div className="grid flex-1 place-items-center py-6 text-center text-[11.5px] text-[#b9b3a3]">
@@ -333,7 +349,7 @@ function Kpi({ lab, val, note }) {
   );
 }
 
-function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDirecionar, onSaiuLoja }) {
+function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDirecionar, onSaiuLoja, onReofertar, reoferta }) {
   const nItens = Array.isArray(p.itens) ? p.itens.length : null;
   const ent = p.entrega || null;
   const nome = ent && ent.entregador ? ent.entregador.nome : null;
@@ -408,6 +424,24 @@ function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDireci
                 <option value="">Direcionar a um entregador…</option>
                 {entregadores.map((en) => <option key={en.id} value={en.id}>{en.nome}</option>)}
               </select>
+              {onReofertar && (
+                <button
+                  onClick={() => onReofertar(p.id)}
+                  disabled={reoferta === 'enviando'}
+                  className="mt-2 w-full rounded-lg border border-[#e3ddcf] bg-white px-3 py-1.5 text-[11.5px] font-semibold text-[#1F3A2E] hover:border-[#B8935A] disabled:opacity-50"
+                >
+                  {reoferta === 'enviando' ? 'Enviando aviso…' : '🔔 Reenviar aviso aos entregadores'}
+                </button>
+              )}
+              {reoferta && reoferta !== 'enviando' && (
+                <div className={`mt-1.5 rounded-md px-2 py-1 text-center text-[10.5px] font-semibold ${reoferta.enviados > 0 ? 'bg-[#e6f0e9] text-[#2f6b48]' : 'bg-[#fdf8ec] text-[#9a6a1f]'}`}>
+                  {reoferta.enviados > 0
+                    ? `Aviso enviado a ${reoferta.enviados} aparelho(s) ✓`
+                    : reoferta.entregadores > 0
+                    ? 'Nenhum aparelho com notificações ativas ainda.'
+                    : 'Nenhum entregador ativo para esta loja.'}
+                </div>
+              )}
             </>
           )}
         </div>
