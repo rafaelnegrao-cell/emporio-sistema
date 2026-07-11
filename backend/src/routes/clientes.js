@@ -216,6 +216,44 @@ router.patch(
 // LGPD — direitos do titular (art. 18)
 // ─────────────────────────────────────────────────────────────
 
+// POST /api/clientes/recalcular-estatisticas — recalcula qtdPedidos, totalGasto e
+// ultimaCompraEm de TODOS os clientes a partir dos pedidos ENTREGUES.
+// Uso: corrigir dados antigos (os campos passam a se manter sozinhos a cada entrega)
+// e após importações. Idempotente — pode rodar quantas vezes quiser.
+router.post(
+  '/recalcular-estatisticas',
+  requireAuth,
+  requireRole('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const grupos = await prisma.pedido.groupBy({
+      by: ['clienteId'],
+      where: { status: 'ENTREGUE', deletadoEm: null },
+      _count: { _all: true },
+      _sum: { valorTotal: true },
+      _max: { entregueEm: true, pedidoEm: true },
+    });
+    const comEntrega = new Set(grupos.map((g) => String(g.clienteId)));
+    let atualizados = 0;
+    for (const g of grupos) {
+      await prisma.cliente.update({
+        where: { id: g.clienteId },
+        data: {
+          qtdPedidos: g._count._all || 0,
+          totalGasto: g._sum.valorTotal || 0,
+          ultimaCompraEm: g._max.entregueEm || g._max.pedidoEm || null,
+        },
+      });
+      atualizados++;
+    }
+    // Zera quem não tem nenhum pedido entregue (ex.: entregas viraram devolução).
+    const zerados = await prisma.cliente.updateMany({
+      where: { deletadoEm: null, id: { notIn: [...comEntrega].map((s) => BigInt(s)) } },
+      data: { qtdPedidos: 0, totalGasto: 0, ultimaCompraEm: null },
+    });
+    res.json({ ok: true, atualizados, zerados: zerados.count });
+  })
+);
+
 // GET /api/clientes/:id/dados-lgpd — todos os dados do titular, para
 // atender pedido de acesso/portabilidade. O painel formata para impressão.
 router.get(

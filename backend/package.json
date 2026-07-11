@@ -1,6 +1,6 @@
 {
   "name": "emporio-backend",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Backend do sistema Empório dos Animais — Negrão Consultoria",
   "main": "src/server.js",
   "scripts": {

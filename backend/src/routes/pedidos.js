@@ -23,6 +23,25 @@ function gerarNumero() {
   return `${ymd}-${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
+// Recalcula os campos-resumo do cadastro do cliente a partir dos pedidos ENTREGUES.
+// Idempotente: pode rodar quantas vezes for, o resultado é sempre o retrato atual.
+async function recalcularEstatisticasCliente(clienteId) {
+  const agg = await prisma.pedido.aggregate({
+    where: { clienteId: BigInt(clienteId), status: 'ENTREGUE', deletadoEm: null },
+    _count: { _all: true },
+    _sum: { valorTotal: true },
+    _max: { entregueEm: true, pedidoEm: true },
+  });
+  await prisma.cliente.update({
+    where: { id: BigInt(clienteId) },
+    data: {
+      qtdPedidos: agg._count._all || 0,
+      totalGasto: agg._sum.valorTotal || 0,
+      ultimaCompraEm: agg._max.entregueEm || agg._max.pedidoEm || null,
+    },
+  });
+}
+
 // GET /api/pedidos — lista (mais recentes primeiro). Filtros opcionais: status, lojaId.
 router.get(
   '/',
@@ -214,7 +233,7 @@ router.patch(
     const atual = await prisma.pedido.findUnique({
       where: { id },
       select: {
-        status: true, separadoEm: true, numero: true, lojaId: true, tokenAvaliacao: true,
+        status: true, separadoEm: true, numero: true, lojaId: true, tokenAvaliacao: true, clienteId: true,
         loja: { select: { nome: true } },
         enderecoEntrega: { select: { bairro: true } },
         entrega: { select: { entregadorId: true } },
@@ -291,6 +310,13 @@ router.patch(
           },
         });
       } catch (e) { /* histórico é best-effort */ }
+    }
+
+    // Estatísticas do cliente (qtdPedidos / totalGasto / ultimaCompraEm), usadas
+    // na tela de Clientes e no status Ativo/Inativo. Recalcula (idempotente) sempre
+    // que o pedido ENTRA ou SAI de ENTREGUE — best-effort, nunca bloqueia a operação.
+    if (atual && atual.clienteId && (status === 'ENTREGUE' || statusAnterior === 'ENTREGUE') && statusAnterior !== status) {
+      recalcularEstatisticasCliente(atual.clienteId).catch(() => {});
     }
     res.json(serializarBigInt(pedido));
   })
