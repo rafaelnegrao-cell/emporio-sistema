@@ -20,6 +20,7 @@ export const NOVIDADES = [
       { tipo: 'NOVIDADE', texto: 'Notificações no celular do entregador: ao separar um pedido (oferta aberta) ou direcionar a alguém, o aparelho avisa na hora — mesmo com o app fechado. Cada entregador ativa no próprio app pelo botão "Ativar notificações".' },
       { tipo: 'NOVIDADE', texto: 'Alerta sonoro e vibração no app do entregador quando uma retirada passa dos 15 minutos (SLA), com o app aberto.' },
       { tipo: 'NOVIDADE', texto: 'Botão "Reenviar aviso aos entregadores" no cartão do pedido em Separado (oferta aberta): reenvia a notificação quando ninguém aceitou, e mostra a quantos aparelhos o aviso chegou.' },
+      { tipo: 'NOVIDADE', texto: 'Aviso ao cliente pelo WhatsApp: no painel do pedido (e no cartão Em rota), um botão abre a conversa com a mensagem pronta para o status atual — "saiu para entrega", "pedido recebido", "entregue" — é só revisar e enviar.' },
       { tipo: 'MELHORIA', texto: 'No iPhone, o app orienta a adicionar o atalho à Tela de Início quando necessário para receber os avisos.' },
     ],
   },

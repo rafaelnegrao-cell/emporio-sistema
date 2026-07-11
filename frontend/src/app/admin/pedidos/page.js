@@ -47,6 +47,39 @@ const hora = (d) => {
   return dt.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
 
+// ── Aviso ao cliente via WhatsApp (custo zero: abre o wa.me com o texto pronto) ──
+const digitos = (s) => String(s || '').replace(/\D/g, '');
+function msgStatusCliente(p) {
+  const nome = ((p.cliente && p.cliente.nome) || '').trim().split(' ')[0] || 'tudo bem';
+  const num = p.numero || p.id;
+  const entregador = p.entrega && p.entrega.entregador && p.entrega.entregador.nome ? p.entrega.entregador.nome.trim().split(' ')[0] : null;
+  switch (p.status) {
+    case 'RECEBIDO':
+      return `Olá, ${nome}! 🐾 Recebemos seu pedido #${num} aqui no Empório dos Animais. Já estamos cuidando de tudo e avisamos assim que sair para entrega.`;
+    case 'ACEITO':
+    case 'EM_SEPARACAO':
+      return `Olá, ${nome}! Seu pedido #${num} do Empório dos Animais está sendo separado com todo o carinho. 🐾`;
+    case 'SEPARADO':
+      return `Olá, ${nome}! Seu pedido #${num} do Empório dos Animais está prontinho e já vai sair para entrega. 🐾`;
+    case 'EM_ROTA':
+      return `Olá, ${nome}! 🛵 Seu pedido #${num} do Empório dos Animais saiu para entrega${entregador ? ` com o ${entregador}` : ''} e chega em breve!`;
+    case 'ENTREGUE':
+      return `Olá, ${nome}! Seu pedido #${num} foi entregue. Obrigado pela preferência! 🐾 Qualquer coisa, estamos por aqui.`;
+    default:
+      return `Olá, ${nome}! Sobre o seu pedido #${num} no Empório dos Animais: `;
+  }
+}
+function linkWhatsCliente(p) {
+  const tel = digitos(p.cliente && p.cliente.whatsapp);
+  if (tel.length < 10) return null;
+  return `https://wa.me/55${tel}?text=${encodeURIComponent(msgStatusCliente(p))}`;
+}
+const ICONE_WA = (
+  <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 15, height: 15 }} aria-hidden="true">
+    <path d="M.057 24l1.687-6.163a11.867 11.867 0 0 1-1.587-5.946C.16 5.335 5.495 0 12.05 0a11.82 11.82 0 0 1 8.413 3.488 11.82 11.82 0 0 1 3.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 0 1-5.688-1.448L.057 24zM6.597 20.13c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.82 9.82 0 0 0 1.51 5.26l-.999 3.648 3.978-1.043z" />
+  </svg>
+);
+
 export default function PedidosPage() {
   const [pedidos, setPedidos] = useState([]);
   const [lojas, setLojas] = useState([]);
@@ -387,6 +420,18 @@ function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDireci
         </div>
       )}
 
+      {col === 'EM_ROTA' && linkWhatsCliente(p) && (
+        <a
+          href={linkWhatsCliente(p)}
+          target="_blank"
+          rel="noreferrer"
+          onClick={stop}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#25D366] px-3 py-1.5 text-[11.5px] font-bold text-[#07351c] hover:brightness-95"
+        >
+          {ICONE_WA} Avisar cliente: saiu para entrega
+        </a>
+      )}
+
       {noSeparado && (
         <div className="mt-2 border-t border-[#f0ece0] pt-2" onClick={stop} onMouseDown={stop}>
           {aceito ? (
@@ -517,6 +562,20 @@ function Drawer({ p, salvando, entregadores = [], onClose, onAvancar, onStatus, 
           <Linha lab="Entrada" val={hora(p.pedidoEm)} />
           {p.enderecoEntrega && (
             <Linha lab="Entrega" val={[p.enderecoEntrega.logradouro, p.enderecoEntrega.numero, p.enderecoEntrega.bairro, p.enderecoEntrega.cidade].filter(Boolean).join(', ')} />
+          )}
+
+          {linkWhatsCliente(p) && (
+            <a
+              href={linkWhatsCliente(p)}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#25D366] px-4 py-2.5 text-[13px] font-bold text-[#07351c] hover:brightness-95"
+            >
+              {ICONE_WA} Avisar cliente no WhatsApp
+            </a>
+          )}
+          {linkWhatsCliente(p) && (
+            <p className="mt-1.5 text-center text-[10.5px] text-[#9a9483]">Abre a conversa com a mensagem pronta para “{STATUS_LABEL[p.status] || p.status}” — revise e envie.</p>
           )}
 
           {/* Entregador */}
