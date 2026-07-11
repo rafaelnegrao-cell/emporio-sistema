@@ -22,9 +22,11 @@ const serializar = _ser.serializar || function (obj) {
 };
 
 // Middlewares de auth — usa os do projeto (seja qual for o nome); fallback no-op pra não quebrar o load.
+// IMPORTANTE: exigirPapel é o nome real neste projeto — precisa estar na cadeia,
+// senão o controle de papel vira no-op silencioso (corrigido em 11/07/2026).
 const _auth = (() => { try { return require('../middlewares/auth'); } catch (_) { return {}; } })();
 const requireAuth = _auth.requireAuth || _auth.autenticar || _auth.verificarToken || ((req, res, next) => next());
-const requireRole = _auth.requireRole || _auth.autorizar || (() => (req, res, next) => next());
+const requireRole = _auth.requireRole || _auth.exigirPapel || _auth.autorizar || (() => (req, res, next) => next());
 
 const router = express.Router();
 
@@ -207,6 +209,100 @@ router.patch(
       },
     });
     res.json(serializar(cliente));
+  })
+);
+
+// ─────────────────────────────────────────────────────────────
+// LGPD — direitos do titular (art. 18)
+// ─────────────────────────────────────────────────────────────
+
+// GET /api/clientes/:id/dados-lgpd — todos os dados do titular, para
+// atender pedido de acesso/portabilidade. O painel formata para impressão.
+router.get(
+  '/:id/dados-lgpd',
+  requireAuth,
+  requireRole('ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const id = BigInt(req.params.id);
+    const cliente = await prisma.cliente.findUnique({
+      where: { id },
+      include: {
+        lojaPreferida: { select: { nome: true } },
+        pets: true,
+        enderecos: true,
+        programaFidelidade: true,
+        pedidos: {
+          orderBy: { pedidoEm: 'desc' },
+          take: 500,
+          select: {
+            numero: true, pedidoEm: true, status: true, canalOrigem: true,
+            subtotal: true, valorFrete: true, valorDesconto: true, valorTotal: true,
+            observacoesCliente: true,
+            itens: { select: { quantidade: true, precoTotal: true, produto: { select: { nome: true } } } },
+            entrega: { select: { entregueEm: true } },
+          },
+        },
+      },
+    });
+    if (!cliente) return res.status(404).json({ erro: 'Cliente não encontrado' });
+    res.json(serializar({ geradoEm: new Date().toISOString(), cliente }));
+  })
+);
+
+// POST /api/clientes/:id/anonimizar — remove os dados pessoais do titular,
+// preservando os pedidos para fins fiscais/estatísticos (anonimização, art. 12/16).
+// Irreversível. Body: { confirmacao: 'APAGAR' }. Somente ADMIN.
+// O que faz: apaga pets, recompras e fidelidade; limpa identificação do cadastro
+// (nome/CPF/e-mail/WhatsApp/nascimento); apaga rua/número/CEP dos endereços
+// (mantém bairro/cidade para relatórios por região); limpa observações dos
+// pedidos e comentários de avaliação. Pedidos e valores permanecem.
+router.post(
+  '/:id/anonimizar',
+  requireAuth,
+  requireRole('ADMIN'),
+  asyncHandler(async (req, res) => {
+    const id = BigInt(req.params.id);
+    if ((req.body && req.body.confirmacao) !== 'APAGAR') {
+      return res.status(400).json({ erro: 'Confirmação ausente. Envie { "confirmacao": "APAGAR" }.' });
+    }
+    const cliente = await prisma.cliente.findUnique({ where: { id }, select: { id: true, anonimizadoEm: true } });
+    if (!cliente) return res.status(404).json({ erro: 'Cliente não encontrado' });
+    if (cliente.anonimizadoEm) return res.status(400).json({ erro: 'Este cliente já foi anonimizado.' });
+
+    const ATIVOS = ['RECEBIDO', 'ACEITO', 'EM_SEPARACAO', 'SEPARADO', 'EM_ROTA'];
+    const emAndamento = await prisma.pedido.count({ where: { clienteId: id, deletadoEm: null, status: { in: ATIVOS } } });
+    if (emAndamento > 0) {
+      return res.status(400).json({ erro: `Este cliente tem ${emAndamento} pedido(s) em andamento. Conclua ou cancele antes de anonimizar.` });
+    }
+
+    const agora = new Date();
+    await prisma.$transaction([
+      prisma.pet.deleteMany({ where: { clienteId: id } }),
+      prisma.recompra.deleteMany({ where: { clienteId: id } }),
+      prisma.programaFidelidade.deleteMany({ where: { clienteId: id } }),
+      prisma.endereco.updateMany({
+        where: { clienteId: id },
+        data: { apelido: 'Removido', cep: '', logradouro: 'Removido (LGPD)', numero: 'S/N', complemento: null },
+      }),
+      prisma.pedido.updateMany({ where: { clienteId: id }, data: { observacoesCliente: null } }),
+      prisma.avaliacaoNPS.updateMany({ where: { pedido: { clienteId: id } }, data: { comentario: null } }),
+      prisma.cliente.update({
+        where: { id },
+        data: {
+          nome: 'Cliente removido (LGPD)',
+          cpf: null,
+          email: null,
+          senhaHash: null,
+          whatsapp: 'anonimizado-' + String(id), // campo é unique e obrigatório: placeholder não colide
+          dataNascimento: null,
+          optInMarketing: false,
+          anonimizadoEm: agora,
+          deletadoEm: agora, // sai das listas do painel
+        },
+      }),
+    ]);
+
+    res.json({ ok: true, anonimizadoEm: agora.toISOString() });
   })
 );
 

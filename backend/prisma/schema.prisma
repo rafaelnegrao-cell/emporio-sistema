@@ -240,6 +240,7 @@ model Cliente {
   criadoEm            DateTime   @default(now())
   atualizadoEm        DateTime   @updatedAt
   deletadoEm          DateTime?
+  anonimizadoEm       DateTime?  // LGPD: quando os dados pessoais foram removidos
 
   lojaPreferida       Loja?      @relation(fields: [lojaPreferidaId], references: [id])
   pets                Pet[]
