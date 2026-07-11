@@ -14,6 +14,14 @@
 
 export const NOVIDADES = [
   {
+    versao: 'v0.14.1',
+    data: '2026-07-11',
+    itens: [
+      { tipo: 'CORRECAO', texto: 'Corrigido: a tela de Clientes mostrava todo mundo como "Inativo", com 0 pedidos e R$ 0,00, mesmo com compras entregues. Agora os números (pedidos, total gasto e última compra) se atualizam sozinhos a cada entrega.' },
+      { tipo: 'NOVIDADE', texto: 'Botão "Recalcular" na tela de Clientes: refaz as estatísticas de todos os clientes a partir dos pedidos entregues — útil para acertar os dados antigos e após importações. Disponível para administradores.' },
+    ],
+  },
+  {
     versao: 'v0.14.0',
     data: '2026-07-11',
     itens: [

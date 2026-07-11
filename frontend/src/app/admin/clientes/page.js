@@ -159,6 +159,19 @@ export default function ClientesPage() {
     } catch (e) { alert('Erro ao importar: ' + e.message); }
   };
 
+  // Recalcula os campos-resumo (pedidos, total gasto, última compra) de todos os
+  // clientes a partir dos pedidos entregues — corrige dados antigos e pós-importação.
+  const recalcularEstatisticas = async () => {
+    if (!confirm('Recalcular pedidos, total gasto e última compra de todos os clientes a partir dos pedidos entregues?')) return;
+    try {
+      const r = await api.post('/api/clientes/recalcular-estatisticas');
+      alert(`Pronto: ${r.atualizados} cliente(s) com compras atualizados.`);
+      carregar();
+    } catch (e) {
+      alert('Não consegui recalcular: ' + e.message);
+    }
+  };
+
   const baixarModelo = async () => {
     const XLSX = await import('xlsx');
     const headers = ['Nome', 'WhatsApp', 'CPF', 'CEP', 'Logradouro', 'Número', 'Bairro', 'Cidade', 'UF', 'Complemento', 'Email', 'Loja', 'Aceita Marketing', 'Pet', 'Espécie', 'Raça'];
@@ -238,6 +251,7 @@ export default function ClientesPage() {
             Importar Excel
           </button>
           <button onClick={exportarCSV} className="rounded-lg border border-[#e3ddcf] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#1F3A2E] hover:border-[#B8935A]">Exportar</button>
+          <button onClick={recalcularEstatisticas} className="rounded-lg border border-[#e3ddcf] bg-white px-4 py-2.5 text-[13.5px] font-semibold text-[#1F3A2E] hover:border-[#B8935A]" title="Recalcula pedidos, total gasto e última compra de todos os clientes a partir dos pedidos entregues">Recalcular</button>
           <button onClick={() => setNovo(true)} className="rounded-lg bg-[#B8935A] px-4 py-2.5 text-[13.5px] font-semibold text-[#16291f] hover:bg-[#a8824a]">+ Novo cliente</button>
         </div>
 
