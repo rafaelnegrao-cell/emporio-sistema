@@ -283,6 +283,50 @@ router.patch(
   })
 );
 
+// POST /api/pedidos/:id/reofertar — reenvia o aviso de oferta aberta aos
+// entregadores da loja. Uso: pedido parado em SEPARADO sem ninguém aceitar.
+// Só vale para oferta aberta (sem entregador atribuído/aceito).
+router.post(
+  '/:id/reofertar',
+  autenticar,
+  exigirPapel('ADMIN', 'OPERADOR'),
+  asyncHandler(async (req, res) => {
+    const id = BigInt(req.params.id);
+    const p = await prisma.pedido.findUnique({
+      where: { id },
+      select: {
+        numero: true, lojaId: true, status: true, deletadoEm: true,
+        loja: { select: { nome: true } },
+        enderecoEntrega: { select: { bairro: true } },
+        entrega: { select: { entregadorId: true, aceitoEm: true } },
+      },
+    });
+    if (!p || p.deletadoEm) return res.status(404).json({ erro: 'Pedido não encontrado.' });
+    if (p.status !== 'SEPARADO') {
+      return res.status(400).json({ erro: 'O aviso só pode ser reenviado com o pedido em Separado.' });
+    }
+    if (p.entrega && p.entrega.aceitoEm) {
+      return res.status(400).json({ erro: 'Este pedido já foi aceito por um entregador.' });
+    }
+    if (p.entrega && p.entrega.entregadorId) {
+      return res.status(400).json({ erro: 'Este pedido está direcionado a um entregador. Aguarde o aceite ou troque o entregador.' });
+    }
+    const r = await notificarNovaOferta({
+      numero: p.numero,
+      lojaId: p.lojaId,
+      lojaNome: p.loja && p.loja.nome,
+      bairro: p.enderecoEntrega && p.enderecoEntrega.bairro,
+    });
+    if (!r || r.ok === false) {
+      const msg = r && r.motivo === 'nao-configurado'
+        ? 'Push não configurado no servidor (chaves VAPID ausentes).'
+        : 'Não foi possível enviar o aviso agora. Tente novamente.';
+      return res.status(503).json({ erro: msg });
+    }
+    res.json({ ok: true, entregadores: r.entregadores, enviados: r.enviados });
+  })
+);
+
 // POST /api/pedidos — cria pedido (entrada manual: WhatsApp, telefone, balcão)
 // Body: { clienteId, lojaId, canalOrigem, enderecoEntregaId? | endereco?{...},
 //         itens:[{produtoId, quantidade, observacao?}], valorFrete?, valorDesconto?, observacoesCliente? }

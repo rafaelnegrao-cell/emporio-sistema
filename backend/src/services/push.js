@@ -75,8 +75,9 @@ async function enviarParaUsuarios(usuarioIds, payload) {
 
 // Oferta aberta: notifica os entregadores ativos da loja do pedido.
 // Mesma regra do escopo por loja: entregador SEM loja definida vê (e recebe) tudo.
+// Devolve contagens para quem precisar dar feedback (ex.: botão "Reenviar aviso").
 async function notificarNovaOferta(pedido) {
-  if (!configurado) return;
+  if (!configurado) return { ok: false, motivo: 'nao-configurado' };
   try {
     const entregadores = await prisma.usuario.findMany({
       where: {
@@ -86,8 +87,8 @@ async function notificarNovaOferta(pedido) {
       },
       select: { id: true },
     });
-    if (!entregadores.length) return;
-    await enviarParaUsuarios(
+    if (!entregadores.length) return { ok: true, entregadores: 0, enviados: 0 };
+    const r = await enviarParaUsuarios(
       entregadores.map((u) => u.id),
       {
         titulo: 'Nova entrega disponível',
@@ -96,8 +97,10 @@ async function notificarNovaOferta(pedido) {
         tag: `oferta-${pedido.numero}`,
       }
     );
+    return { ok: true, entregadores: entregadores.length, enviados: r.enviados };
   } catch (e) {
     logger.warn({ err: e.message }, 'notificarNovaOferta falhou (ignorada).');
+    return { ok: false, motivo: 'erro' };
   }
 }
 
