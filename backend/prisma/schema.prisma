@@ -62,8 +62,25 @@ model Usuario {
   loja          Loja?         @relation(fields: [lojaId], references: [id])
   entregas      Entrega[]
   mudancasStatus StatusPedidoHistorico[]
+  pushSubscriptions PushSubscription[]
 
   @@map("usuarios")
+}
+
+// Inscrição de push notification (Web Push/VAPID) de um aparelho.
+// Um usuário pode ter várias (celular + tablet, por exemplo).
+// endpoint é único: se o mesmo aparelho se inscrever de novo, atualiza.
+model PushSubscription {
+  id         BigInt   @id @default(autoincrement())
+  usuarioId  BigInt
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  criadoEm   DateTime @default(now())
+
+  usuario    Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@map("push_subscriptions")
 }
 
 // ============================================================

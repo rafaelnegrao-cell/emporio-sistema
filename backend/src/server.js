@@ -21,6 +21,7 @@ const zonaEntregaRoutes = require('./routes/zonas-entrega');
 const freteRoutes = require('./routes/frete');
 const entregadorRoutes = require('./routes/entregadores');
 const usuarioRoutes = require('./routes/usuarios');
+const pushRoutes = require('./routes/push');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -61,6 +62,7 @@ app.use('/api/zonas-entrega', zonaEntregaRoutes);
 app.use('/api/frete', freteRoutes);
 app.use('/api/entregadores', entregadorRoutes);
 app.use('/api/usuarios', usuarioRoutes);
+app.use('/api/push', pushRoutes);
 
 // Página inicial — informativa
 app.get('/', (req, res) => {

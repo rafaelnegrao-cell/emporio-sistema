@@ -10,6 +10,7 @@ const { prisma } = require('../lib/prisma');
 const { asyncHandler } = require('../utils/async-handler');
 const { serializarBigInt } = require('../utils/serializar');
 const { autenticar, exigirPapel } = require('../middlewares/auth');
+const { notificarNovaOferta, notificarDirecionada } = require('../services/push');
 
 const router = express.Router();
 
@@ -181,12 +182,25 @@ router.patch(
     if (!status) return res.status(400).json({ erro: 'status é obrigatório' });
     const id = BigInt(req.params.id);
 
-    const atual = await prisma.pedido.findUnique({ where: { id }, select: { status: true, separadoEm: true } });
+    const atual = await prisma.pedido.findUnique({
+      where: { id },
+      select: {
+        status: true, separadoEm: true, numero: true, lojaId: true,
+        loja: { select: { nome: true } },
+        enderecoEntrega: { select: { bairro: true } },
+        entrega: { select: { entregadorId: true } },
+      },
+    });
     const statusAnterior = atual ? atual.status : null;
 
     const dataPedido = { status };
     if (status === 'SEPARADO' && atual && !atual.separadoEm) dataPedido.separadoEm = new Date();
     const pedido = await prisma.pedido.update({ where: { id }, data: dataPedido });
+
+    // Infos mínimas para o texto da notificação push.
+    const infoPush = atual
+      ? { numero: atual.numero, lojaId: atual.lojaId, lojaNome: atual.loja && atual.loja.nome, bairro: atual.enderecoEntrega && atual.enderecoEntrega.bairro }
+      : null;
 
     // Modo direcionado: ao separar, manda pra UM entregador (fica aguardando o aceite dele).
     if (status === 'SEPARADO' && entregadorId) {
@@ -195,6 +209,13 @@ router.patch(
         update: { entregadorId: BigInt(entregadorId), atribuidaEm: new Date() },
         create: { pedidoId: id, entregadorId: BigInt(entregadorId), atribuidaEm: new Date() },
       });
+      // Push só pro escolhido (best-effort, não bloqueia a resposta).
+      if (infoPush) notificarDirecionada(BigInt(entregadorId), infoPush).catch(() => {});
+    } else if (status === 'SEPARADO' && statusAnterior !== 'SEPARADO') {
+      // Oferta aberta: avisa os entregadores da loja — mas só se o pedido ainda
+      // não tem entregador atribuído (senão seria spam pra quem não pode pegar).
+      const jaTemEntregador = atual && atual.entrega && atual.entrega.entregadorId;
+      if (!jaTemEntregador && infoPush) notificarNovaOferta(infoPush).catch(() => {});
     }
 
     // Carimba horários na Entrega (se já houver entregador atribuído).
@@ -246,6 +267,18 @@ router.patch(
       create: { pedidoId, entregadorId: BigInt(entregadorId) },
       include: { entregador: { select: { id: true, nome: true, telefone: true } } },
     });
+    // Avisa o entregador escolhido (best-effort).
+    try {
+      const p = await prisma.pedido.findUnique({
+        where: { id: pedidoId },
+        select: { numero: true, lojaId: true, loja: { select: { nome: true } }, enderecoEntrega: { select: { bairro: true } } },
+      });
+      if (p) {
+        notificarDirecionada(BigInt(entregadorId), {
+          numero: p.numero, lojaId: p.lojaId, lojaNome: p.loja && p.loja.nome, bairro: p.enderecoEntrega && p.enderecoEntrega.bairro,
+        }).catch(() => {});
+      }
+    } catch (e) { /* push é best-effort */ }
     res.json(serializarBigInt(entrega));
   })
 );
