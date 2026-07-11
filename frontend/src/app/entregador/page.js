@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MapPin, Phone, Package, CheckCircle2, Navigation, RefreshCw, LogOut, Hand } from 'lucide-react';
+import { MapPin, Phone, Package, CheckCircle2, RefreshCw, LogOut, Hand, Bell, BellRing, Share } from 'lucide-react';
 
 // Cliente próprio do app do entregador — chave de login SEPARADA do admin
 const BASE = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
@@ -39,6 +39,53 @@ function slaInfo(aceitoEm) {
   return { min, tier };
 }
 
+// ────────────────────────────────────────────────────────────
+// Notificações push (Web Push/VAPID)
+// ────────────────────────────────────────────────────────────
+
+// Converte a chave pública VAPID (base64url) pro formato que o navegador exige.
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+function ehIOS() {
+  try { return /iphone|ipad|ipod/i.test(window.navigator.userAgent); } catch (_) { return false; }
+}
+function ehPWAInstalada() {
+  try {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  } catch (_) { return false; }
+}
+
+// Bipe curto de alerta (SLA estourada) via WebAudio — sem arquivo de som.
+let _audioCtx = null;
+function tocarAlerta() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!_audioCtx) _audioCtx = new AC();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume().catch(() => {});
+    const agora = _audioCtx.currentTime;
+    [0, 0.35, 0.7].forEach((t) => {
+      const osc = _audioCtx.createOscillator();
+      const gain = _audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, agora + t);
+      gain.gain.exponentialRampToValueAtTime(0.35, agora + t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, agora + t + 0.25);
+      osc.connect(gain); gain.connect(_audioCtx.destination);
+      osc.start(agora + t); osc.stop(agora + t + 0.3);
+    });
+  } catch (_) {}
+  try { if (navigator.vibrate) navigator.vibrate([300, 120, 300]); } catch (_) {}
+}
+
 export default function EntregadorPage() {
   const [logado, setLogado] = useState(false);
   const [nome, setNome] = useState('');
@@ -49,6 +96,10 @@ export default function EntregadorPage() {
   const [erro, setErro] = useState(null);
   const [acao, setAcao] = useState(null);
   const timer = useRef(null);
+
+  // Estados do push: verificando | ios-instalar | sem-suporte | desativado | ativando | ativado | negado | erro-servidor
+  const [pushEstado, setPushEstado] = useState('verificando');
+  const estouradasRef = useRef(null); // ids que já estavam com SLA estourada (pra bipar só na virada)
 
   useEffect(() => { setLogado(!!(typeof window !== 'undefined' && window.localStorage.getItem(TKEY))); }, []);
 
@@ -75,6 +126,71 @@ export default function EntregadorPage() {
     timer.current = setInterval(() => carregar(true), 25000); // verifica novas entregas sozinho
     return () => clearInterval(timer.current);
   }, [logado, carregar]);
+
+  // Registra o service worker e descobre o estado do push neste aparelho.
+  useEffect(() => {
+    if (!logado) return;
+    (async () => {
+      try {
+        const suporta = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+        if (!suporta) {
+          setPushEstado(ehIOS() && !ehPWAInstalada() ? 'ios-instalar' : 'sem-suporte');
+          return;
+        }
+        const reg = await navigator.serviceWorker.register('/sw.js');
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          // Reafirma a inscrição no servidor (garante o vínculo com o usuário logado agora).
+          api.post('/api/push/inscrever', sub.toJSON()).catch(() => {});
+          setPushEstado('ativado');
+        } else if (Notification.permission === 'denied') {
+          setPushEstado('negado');
+        } else {
+          setPushEstado('desativado');
+        }
+      } catch (_) {
+        setPushEstado('sem-suporte');
+      }
+    })();
+  }, [logado]);
+
+  // Botão "Ativar notificações" — precisa ser chamado por toque (regra do iPhone).
+  const ativarNotificacoes = async () => {
+    setPushEstado('ativando');
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { setPushEstado(perm === 'denied' ? 'negado' : 'desativado'); return; }
+      const { chave } = await api.get('/api/push/chave-publica');
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(chave),
+      });
+      await api.post('/api/push/inscrever', sub.toJSON());
+      setPushEstado('ativado');
+      // Dispara um push de teste pra pessoa VER a notificação chegar na hora.
+      api.post('/api/push/teste').catch(() => {});
+    } catch (e) {
+      setPushEstado(String(e && e.message || '').includes('servidor') ? 'erro-servidor' : 'desativado');
+      setErro(e.message || 'Não foi possível ativar as notificações.');
+    }
+  };
+
+  // Alerta sonoro + vibração quando alguma retirada ESTOURA a SLA de 15 min.
+  // Bipa só na virada (não fica repetindo a cada poll).
+  useEffect(() => {
+    const pendentes = entregas.filter((e) => PENDENTES.includes(e.status) && e.status !== 'EM_ROTA');
+    const estouradas = new Set(
+      pendentes
+        .filter((e) => { const s = slaInfo(e.entrega && e.entrega.aceitoEm); return s && s.tier === 'estourou'; })
+        .map((e) => String(e.id))
+    );
+    if (estouradasRef.current === null) { estouradasRef.current = estouradas; return; } // primeira carga: não bipa
+    let novaEstourada = false;
+    estouradas.forEach((id) => { if (!estouradasRef.current.has(id)) novaEstourada = true; });
+    estouradasRef.current = estouradas;
+    if (novaEstourada) tocarAlerta();
+  }, [entregas]);
 
   const sair = () => { window.localStorage.removeItem(TKEY); setLogado(false); setDirecionadas([]); setDisponiveis([]); setEntregas([]); };
 
@@ -105,6 +221,15 @@ export default function EntregadorPage() {
             <div className="text-[15px] font-semibold">{nome || 'Entregador'}</div>
           </div>
           <div className="flex items-center gap-3">
+            {pushEstado === 'ativado' && (
+              <span className="rounded-full p-2 text-[#A8B5A0]" title="Notificações ativas neste aparelho"><BellRing size={18} /></span>
+            )}
+            {pushEstado === 'desativado' && (
+              <button onClick={ativarNotificacoes} className="relative rounded-full p-2 hover:bg-white/10" title="Ativar notificações">
+                <Bell size={18} />
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[#B8935A]" />
+              </button>
+            )}
             <button onClick={() => carregar()} className="rounded-full p-2 hover:bg-white/10" title="Atualizar"><RefreshCw size={18} /></button>
             <button onClick={sair} className="rounded-full p-2 hover:bg-white/10" title="Sair"><LogOut size={18} /></button>
           </div>
@@ -112,6 +237,44 @@ export default function EntregadorPage() {
       </header>
 
       <main className="mx-auto max-w-md px-4 py-4">
+        {pushEstado === 'desativado' && (
+          <div className="mb-4 rounded-xl border border-[#e6cf94] bg-[#fdf8ec] p-3">
+            <div className="flex items-start gap-2">
+              <Bell size={18} className="mt-0.5 shrink-0 text-[#9a6a1f]" />
+              <div className="min-w-0">
+                <div className="text-[13.5px] font-semibold text-[#9a6a1f]">Ative as notificações</div>
+                <div className="text-[12.5px] text-[#6b685e]">Este aparelho vai avisar na hora que sair entrega nova — mesmo com o app fechado.</div>
+              </div>
+            </div>
+            <button onClick={ativarNotificacoes} className="mt-2 w-full rounded-lg bg-[#B8935A] px-4 py-2.5 text-[13.5px] font-semibold text-[#16291f] hover:bg-[#a8824a]">
+              Ativar notificações neste aparelho
+            </button>
+          </div>
+        )}
+        {pushEstado === 'ativando' && (
+          <div className="mb-4 rounded-xl border border-[#e3ddcf] bg-white p-3 text-center text-[13px] text-[#6b685e]">Ativando notificações…</div>
+        )}
+        {pushEstado === 'ios-instalar' && (
+          <div className="mb-4 rounded-xl border border-[#e6cf94] bg-[#fdf8ec] p-3">
+            <div className="flex items-start gap-2">
+              <Share size={18} className="mt-0.5 shrink-0 text-[#9a6a1f]" />
+              <div className="text-[12.5px] text-[#6b685e]">
+                <span className="font-semibold text-[#9a6a1f]">Para receber avisos de entrega no iPhone:</span> toque em <b>Compartilhar</b> no Safari e depois em <b>Adicionar à Tela de Início</b>. Abra o app por esse ícone e o botão de ativar notificações aparece aqui.
+              </div>
+            </div>
+          </div>
+        )}
+        {pushEstado === 'negado' && (
+          <div className="mb-4 rounded-xl border border-[#e3ddcf] bg-white p-3 text-[12.5px] text-[#6b685e]">
+            As notificações estão <b>bloqueadas</b> para este app. Libere nos ajustes do aparelho (Notificações → Empório) e recarregue.
+          </div>
+        )}
+        {pushEstado === 'erro-servidor' && (
+          <div className="mb-4 rounded-xl border border-[#e7c9c4] bg-[#fbeeec] p-3 text-[12.5px] text-[#b23b3b]">
+            O servidor ainda não está configurado para enviar notificações. Avise o administrador.
+          </div>
+        )}
+
         <div className="mb-4 grid grid-cols-3 gap-2">
           <Stat n={direcionadas.length} label="Pra você" destaque />
           <Stat n={disponiveis.length} label="Disponíveis" />

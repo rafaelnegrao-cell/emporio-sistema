@@ -14,6 +14,15 @@
 
 export const NOVIDADES = [
   {
+    versao: 'v0.12.0',
+    data: '2026-07-11',
+    itens: [
+      { tipo: 'NOVIDADE', texto: 'Notificações no celular do entregador: ao separar um pedido (oferta aberta) ou direcionar a alguém, o aparelho avisa na hora — mesmo com o app fechado. Cada entregador ativa no próprio app pelo botão "Ativar notificações".' },
+      { tipo: 'NOVIDADE', texto: 'Alerta sonoro e vibração no app do entregador quando uma retirada passa dos 15 minutos (SLA), com o app aberto.' },
+      { tipo: 'MELHORIA', texto: 'No iPhone, o app orienta a adicionar o atalho à Tela de Início quando necessário para receber os avisos.' },
+    ],
+  },
+  {
     versao: 'v0.11.0',
     data: '2026-07-05',
     itens: [
