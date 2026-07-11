@@ -71,7 +71,8 @@ router.get(
       where,
       take: 5000,
       select: {
-        id: true, status: true, valorTotal: true, valorFrete: true, valorDesconto: true, pedidoEm: true,
+        id: true, numero: true, status: true, valorTotal: true, valorFrete: true, valorDesconto: true, pedidoEm: true,
+        avaliacaoNPS: { select: { notaGeral: true, comentario: true, respondidoEm: true } },
         entrega: { select: { aceitoEm: true, saidaEm: true, entregueEm: true, entregador: { select: { id: true, nome: true } } } },
         itens: { select: { quantidade: true, precoTotal: true, produto: { select: { id: true, nome: true } } } },
       },
@@ -142,6 +143,30 @@ router.get(
     }
     const porDia = [...mapDia.values()].sort((a, b) => a.dia.localeCompare(b.dia));
 
+    // Satisfação (NPS) — avaliações pós-entrega dos pedidos do período.
+    const avaliacoes = [];
+    for (const p of validos) {
+      const a = p.avaliacaoNPS;
+      if (a && a.notaGeral != null) {
+        avaliacoes.push({ nota: a.notaGeral, comentario: a.comentario || null, respondidoEm: a.respondidoEm, numero: p.numero });
+      }
+    }
+    const nAv = avaliacoes.length;
+    const promotores = avaliacoes.filter((a) => a.nota >= 9).length;
+    const neutros = avaliacoes.filter((a) => a.nota >= 7 && a.nota <= 8).length;
+    const detratores = nAv - promotores - neutros;
+    const avaliacao = {
+      respostas: nAv,
+      notaMedia: nAv ? avaliacoes.reduce((s, a) => s + a.nota, 0) / nAv : null,
+      nps: nAv ? Math.round(((promotores - detratores) / nAv) * 100) : null,
+      promotores, neutros, detratores,
+      taxaRespostaPct: entregues.length ? (nAv / entregues.length) * 100 : null,
+      comentarios: avaliacoes
+        .filter((a) => a.comentario)
+        .sort((a, b) => new Date(b.respondidoEm) - new Date(a.respondidoEm))
+        .slice(0, 10),
+    };
+
     res.json({
       periodo: { inicio: inicioD.toISOString().slice(0, 10), fim: fimD.toISOString().slice(0, 10) },
       resumo: { pedidos: validos.length, entregues: entregues.length, cancelados, faturamento, frete, desconto, ticketMedio },
@@ -149,6 +174,7 @@ router.get(
       entregadores,
       abc,
       porDia,
+      avaliacao,
     });
   })
 );
