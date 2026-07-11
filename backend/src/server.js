@@ -22,6 +22,7 @@ const freteRoutes = require('./routes/frete');
 const entregadorRoutes = require('./routes/entregadores');
 const usuarioRoutes = require('./routes/usuarios');
 const pushRoutes = require('./routes/push');
+const avaliacaoRoutes = require('./routes/avaliacoes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -63,6 +64,7 @@ app.use('/api/frete', freteRoutes);
 app.use('/api/entregadores', entregadorRoutes);
 app.use('/api/usuarios', usuarioRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/avaliacoes', avaliacaoRoutes); // rotas públicas (token por pedido)
 
 // Página inicial — informativa
 app.get('/', (req, res) => {

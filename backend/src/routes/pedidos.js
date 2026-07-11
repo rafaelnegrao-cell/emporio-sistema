@@ -11,6 +11,7 @@ const { asyncHandler } = require('../utils/async-handler');
 const { serializarBigInt } = require('../utils/serializar');
 const { autenticar, exigirPapel } = require('../middlewares/auth');
 const { notificarNovaOferta, notificarDirecionada } = require('../services/push');
+const crypto = require('crypto');
 
 const router = express.Router();
 
@@ -41,6 +42,7 @@ router.get(
         loja: { select: { id: true, nome: true } },
         itens: { select: { id: true } },
         entrega: { select: { entregadorId: true, atribuidaEm: true, aceitoEm: true, saidaEm: true, entregueEm: true, entregador: { select: { id: true, nome: true, telefone: true } } } },
+        avaliacaoNPS: { select: { notaGeral: true } },
       },
     });
 
@@ -165,6 +167,7 @@ router.get(
         itens: { include: { produto: { select: { id: true, nome: true, sku: true } } } },
         entrega: { include: { entregador: { select: { id: true, nome: true, telefone: true } } } },
         historicoStatus: { orderBy: { criadoEm: 'asc' }, include: { usuario: { select: { nome: true } } } },
+        avaliacaoNPS: true,
       },
     });
     if (!pedido) return res.status(404).json({ erro: 'Pedido não encontrado' });
@@ -185,7 +188,7 @@ router.patch(
     const atual = await prisma.pedido.findUnique({
       where: { id },
       select: {
-        status: true, separadoEm: true, numero: true, lojaId: true,
+        status: true, separadoEm: true, numero: true, lojaId: true, tokenAvaliacao: true,
         loja: { select: { nome: true } },
         enderecoEntrega: { select: { bairro: true } },
         entrega: { select: { entregadorId: true } },
@@ -195,7 +198,25 @@ router.patch(
 
     const dataPedido = { status };
     if (status === 'SEPARADO' && atual && !atual.separadoEm) dataPedido.separadoEm = new Date();
-    const pedido = await prisma.pedido.update({ where: { id }, data: dataPedido });
+    if (status === 'ENTREGUE') {
+      dataPedido.entregueEm = new Date();
+      // Token do link público de avaliação pós-entrega (gerado uma única vez).
+      dataPedido.tokenAvaliacao = crypto.randomBytes(16).toString('hex');
+    }
+    let pedido;
+    try {
+      pedido = await prisma.pedido.update({ where: { id }, data: dataPedido });
+    } catch (e) {
+      // Colisão improvável do token (unique): tenta uma vez com outro.
+      if (e && e.code === 'P2002' && dataPedido.tokenAvaliacao) {
+        dataPedido.tokenAvaliacao = crypto.randomBytes(16).toString('hex');
+        pedido = await prisma.pedido.update({ where: { id }, data: dataPedido });
+      } else { throw e; }
+    }
+    // Não sobrescreve um token existente (link já enviado ao cliente continua válido).
+    if (status === 'ENTREGUE' && atual && atual.tokenAvaliacao) {
+      pedido = await prisma.pedido.update({ where: { id }, data: { tokenAvaliacao: atual.tokenAvaliacao } });
+    }
 
     // Infos mínimas para o texto da notificação push.
     const infoPush = atual

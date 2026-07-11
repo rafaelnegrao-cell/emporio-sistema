@@ -377,6 +377,7 @@ model Pedido {
   separadoEm            DateTime?
   previsaoEntrega       DateTime?
   entregueEm            DateTime?
+  tokenAvaliacao        String?       @unique // link público de avaliação pós-entrega (NPS)
   atualizadoEm          DateTime      @updatedAt
   deletadoEm            DateTime?
 
