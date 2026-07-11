@@ -63,8 +63,12 @@ function msgStatusCliente(p) {
       return `Olá, ${nome}! Seu pedido #${num} do Empório dos Animais está prontinho e já vai sair para entrega. 🐾`;
     case 'EM_ROTA':
       return `Olá, ${nome}! 🛵 Seu pedido #${num} do Empório dos Animais saiu para entrega${entregador ? ` com o ${entregador}` : ''} e chega em breve!`;
-    case 'ENTREGUE':
-      return `Olá, ${nome}! Seu pedido #${num} foi entregue. Obrigado pela preferência! 🐾 Qualquer coisa, estamos por aqui.`;
+    case 'ENTREGUE': {
+      const linkAvaliacao = p.tokenAvaliacao && typeof window !== 'undefined'
+        ? `${window.location.origin}/avaliar?t=${p.tokenAvaliacao}`
+        : null;
+      return `Olá, ${nome}! Seu pedido #${num} foi entregue. Obrigado pela preferência! 🐾${linkAvaliacao ? `\n\nComo foi a entrega? Conta pra gente em 10 segundos: ${linkAvaliacao}` : ' Qualquer coisa, estamos por aqui.'}`;
+    }
     default:
       return `Olá, ${nome}! Sobre o seu pedido #${num} no Empório dos Animais: `;
   }
@@ -413,6 +417,15 @@ function Card({ p, onDragStart, onClick, muted, col, entregadores = [], onDireci
         <span className="text-[12.5px] font-semibold text-[#1F3A2E]">{BRL(p.valorTotal)}</span>
       </div>
 
+      {p.avaliacaoNPS && p.avaliacaoNPS.notaGeral != null && (
+        <div
+          className="mt-1.5 text-[11px] font-semibold"
+          style={{ color: p.avaliacaoNPS.notaGeral <= 6 ? '#b23b3b' : p.avaliacaoNPS.notaGeral <= 8 ? '#9a6a1f' : '#2f6b48' }}
+        >
+          ★ Avaliação do cliente: {p.avaliacaoNPS.notaGeral}/10
+        </div>
+      )}
+
       {!noSeparado && nome && (
         <div className="mt-1.5 flex items-center gap-1 border-t border-[#f0ece0] pt-1.5 text-[11px] text-[#3f7d5b]">
           <span className="h-[6px] w-[6px] rounded-full bg-[#3f7d5b]" />
@@ -618,6 +631,22 @@ function Drawer({ p, salvando, entregadores = [], onClose, onAvancar, onStatus, 
           </div>
 
           <Timeline p={p} />
+
+          {p.avaliacaoNPS && (
+            <div className="mt-4 rounded-lg border border-[#e3ddcf] bg-[#FBF9F4] px-3.5 py-3">
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#8a8678]">Avaliação do cliente</div>
+              <div
+                className="text-[16px] font-bold"
+                style={{ color: p.avaliacaoNPS.notaGeral <= 6 ? '#b23b3b' : p.avaliacaoNPS.notaGeral <= 8 ? '#9a6a1f' : '#2f6b48' }}
+              >
+                ★ {p.avaliacaoNPS.notaGeral}/10
+              </div>
+              {p.avaliacaoNPS.comentario && (
+                <p className="mt-1 text-[13px] italic text-[#5a5750]">“{p.avaliacaoNPS.comentario}”</p>
+              )}
+              <div className="mt-1 text-[10.5px] text-[#9a9483]">Respondido em {hora(p.avaliacaoNPS.respondidoEm)}</div>
+            </div>
+          )}
         </div>
 
         {/* Ações */}

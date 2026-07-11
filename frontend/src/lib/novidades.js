@@ -14,6 +14,14 @@
 
 export const NOVIDADES = [
   {
+    versao: 'v0.14.0',
+    data: '2026-07-11',
+    itens: [
+      { tipo: 'NOVIDADE', texto: 'Avaliação pós-entrega: quando o pedido é entregue, a mensagem de WhatsApp ao cliente já inclui um link seguro de avaliação — o cliente dá a nota de 0 a 10 e comenta em uma página simples, sem login e sem instalar nada.' },
+      { tipo: 'NOVIDADE', texto: 'A nota do cliente aparece no cartão do pedido entregue (Kanban) e no painel de detalhe, junto com o comentário — vermelho até 6, âmbar 7–8, verde 9–10. Cada pedido só pode ser avaliado uma vez.' },
+    ],
+  },
+  {
     versao: 'v0.13.0',
     data: '2026-07-11',
     itens: [
