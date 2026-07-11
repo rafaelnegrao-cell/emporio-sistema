@@ -14,6 +14,15 @@
 
 export const NOVIDADES = [
   {
+    versao: 'v0.13.0',
+    data: '2026-07-11',
+    itens: [
+      { tipo: 'NOVIDADE', texto: 'Privacidade (LGPD): no painel do cliente há dois novos recursos — "Exportar dados do cliente" gera o relatório completo de tudo que o sistema guarda sobre o titular (pedido de acesso, art. 18), pronto para imprimir ou salvar em PDF.' },
+      { tipo: 'NOVIDADE', texto: '"Anonimizar dados (irreversível)": atende ao pedido de eliminação — remove nome, CPF, WhatsApp, e-mail, pets e rua/número do endereço, mas preserva os pedidos sem identificação para relatórios e obrigações fiscais. Exige confirmação digitando APAGAR e só está disponível para administradores.' },
+      { tipo: 'MELHORIA', texto: 'Reforço de segurança: a checagem de papel (admin/operador) nas rotas de clientes foi corrigida e agora é aplicada de fato pelo servidor.' },
+    ],
+  },
+  {
     versao: 'v0.12.0',
     data: '2026-07-11',
     itens: [

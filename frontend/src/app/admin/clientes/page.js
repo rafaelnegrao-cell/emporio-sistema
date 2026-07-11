@@ -305,7 +305,7 @@ export default function ClientesPage() {
         </div>
       </div>
 
-      {detalhe && <Drawer cliente={detalhe} onClose={() => setDetalhe(null)} />}
+      {detalhe && <Drawer cliente={detalhe} onClose={() => setDetalhe(null)} onAnonimizado={() => { setDetalhe(null); carregar(); }} />}
       {preview && <ImportModal preview={preview} onClose={() => setPreview(null)} onConfirm={confirmarImport} />}
       {novo && <NovoModal lojas={resp.facets.lojas} onClose={() => setNovo(false)} onSaved={() => { setNovo(false); carregar(); }} />}
     </>
@@ -339,8 +339,76 @@ function Badge({ children, cls }) {
   return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${cls}`}><span className="h-1.5 w-1.5 rounded-full bg-current" />{children}</span>;
 }
 
-function Drawer({ cliente, onClose }) {
+// ─── LGPD: relatório imprimível com todos os dados do titular ───
+const escHtml = (s) => (s == null ? '' : String(s)).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function htmlDadosLgpd(r) {
+  const c = (r && r.cliente) || {};
+  const fmtD = (d) => (d ? new Date(d).toLocaleString('pt-BR') : '—');
+  const brl = (n) => (n == null ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+  const linha = (l, v) => (v ? `<tr><td class="l">${escHtml(l)}</td><td>${escHtml(v)}</td></tr>` : '');
+  const pets = (c.pets || []).map((p) => `<li>${escHtml(p.nome)} (${escHtml(p.especie)}${p.raca ? ' · ' + escHtml(p.raca) : ''})${p.observacoes ? ' — ' + escHtml(p.observacoes) : ''}</li>`).join('');
+  const ends = (c.enderecos || []).map((e) => `<li>${escHtml([e.apelido, e.logradouro, e.numero, e.complemento, e.bairro, e.cidade, e.uf, e.cep].filter(Boolean).join(', '))}</li>`).join('');
+  const peds = (c.pedidos || []).map((p) => {
+    const itens = (p.itens || []).map((i) => `${i.quantidade}× ${escHtml(i.produto && i.produto.nome ? i.produto.nome : 'item')}`).join(', ');
+    return `<tr><td>${escHtml(p.numero)}</td><td>${fmtD(p.pedidoEm)}</td><td>${escHtml(p.status)}</td><td>${escHtml(itens)}</td><td class="r">${brl(p.valorTotal)}</td></tr>`;
+  }).join('');
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Dados do titular — ${escHtml(c.nome || '')}</title>
+<style>
+  body{font-family:Georgia,serif;color:#2B2B2B;margin:36px auto;max-width:760px;padding:0 20px}
+  h1{font-size:21px;color:#1F3A2E;margin:0}
+  .sub{color:#A4673F;font-style:italic;font-size:12.5px;margin:2px 0 4px}
+  .meta{color:#5A5A56;font-size:11.5px;font-family:Helvetica,Arial,sans-serif}
+  h2{font-size:14px;color:#1F3A2E;border-bottom:1px solid #E4DBCD;padding-bottom:4px;margin:22px 0 8px}
+  table{width:100%;border-collapse:collapse;font-family:Helvetica,Arial,sans-serif;font-size:12px}
+  td,th{padding:5px 8px;border-bottom:1px solid #EDE6D9;text-align:left;vertical-align:top}
+  td.l{color:#5A5A56;width:170px}td.r,th.r{text-align:right}
+  th{color:#5A5A56;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  ul{margin:4px 0;padding-left:18px;font-family:Helvetica,Arial,sans-serif;font-size:12.5px}
+  .rodape{margin-top:28px;border-top:1px solid #E4DBCD;padding-top:8px;color:#5A5A56;font-size:10.5px;font-family:Helvetica,Arial,sans-serif}
+  .btn{position:fixed;top:14px;right:14px;background:#1F3A2E;color:#F4F1EA;border:0;border-radius:9px;padding:10px 16px;font-family:Helvetica,Arial,sans-serif;font-weight:700;font-size:13px;cursor:pointer}
+  @media print{.btn{display:none}body{margin:0 auto}}
+</style></head><body>
+<button class="btn" onclick="window.print()">Imprimir / Salvar PDF</button>
+<h1>Relatório de dados do titular</h1>
+<div class="sub">Lei Geral de Proteção de Dados — art. 18 (acesso aos dados)</div>
+<div class="meta">Empório dos Animais · gerado em ${fmtD(r && r.geradoEm)}</div>
+<h2>Identificação</h2>
+<table>${linha('Nome', c.nome)}${linha('CPF', c.cpf)}${linha('WhatsApp', c.whatsapp)}${linha('E-mail', c.email)}${linha('Nascimento', c.dataNascimento ? new Date(c.dataNascimento).toLocaleDateString('pt-BR') : '')}${linha('Aceita marketing', c.optInMarketing ? 'Sim' : 'Não')}${linha('Loja preferida', c.lojaPreferida && c.lojaPreferida.nome)}${linha('Cadastrado em', fmtD(c.criadoEm))}</table>
+<h2>Pets</h2>${pets ? `<ul>${pets}</ul>` : '<div class="meta">Nenhum pet cadastrado.</div>'}
+<h2>Endereços</h2>${ends ? `<ul>${ends}</ul>` : '<div class="meta">Nenhum endereço cadastrado.</div>'}
+${c.programaFidelidade ? `<h2>Fidelidade</h2><table>${linha('Pontos acumulados', String(c.programaFidelidade.pontosAcumulados))}${linha('Pontos resgatados', String(c.programaFidelidade.pontosResgatados))}${linha('Nível', c.programaFidelidade.nivel)}</table>` : ''}
+<h2>Pedidos (${(c.pedidos || []).length})</h2>
+${peds ? `<table><tr><th>Nº</th><th>Data</th><th>Status</th><th>Itens</th><th class="r">Total</th></tr>${peds}</table>` : '<div class="meta">Nenhum pedido.</div>'}
+<div class="rodape">Documento gerado pelo sistema do Empório dos Animais · preparado por RN Negrão — Diagnóstico &amp; Soluções Empresariais. Contém todos os dados pessoais do titular armazenados no sistema na data de emissão.</div>
+</body></html>`;
+}
+
+function Drawer({ cliente, onClose, onAnonimizado }) {
   const c = cliente;
+  const exportarLgpd = async () => {
+    const win = window.open('', '_blank'); // abre no clique, antes do fetch, para não ser bloqueado
+    if (win) { win.document.write('<p style="font-family:sans-serif;padding:24px;color:#555">Gerando relatório de dados…</p>'); }
+    try {
+      const r = await api.get(`/api/clientes/${c.id}/dados-lgpd`);
+      if (win) { win.document.open(); win.document.write(htmlDadosLgpd(r)); win.document.close(); }
+    } catch (e) {
+      if (win) win.close();
+      alert('Não consegui exportar os dados: ' + e.message);
+    }
+  };
+  const anonimizar = async () => {
+    if (!confirm(`Anonimizar os dados de ${c.nome}?\n\nRemove nome, CPF, WhatsApp, e-mail, nascimento, pets e o endereço (rua/número/CEP). Os pedidos permanecem, sem identificação, para relatórios e obrigações fiscais.\n\nESTA AÇÃO NÃO PODE SER DESFEITA.`)) return;
+    const conf = prompt('Para confirmar, digite APAGAR (em maiúsculas):');
+    if (conf == null) return;
+    if (conf !== 'APAGAR') { alert('Confirmação incorreta — nada foi alterado.'); return; }
+    try {
+      await api.post(`/api/clientes/${c.id}/anonimizar`, { confirmacao: 'APAGAR' });
+      alert('Dados anonimizados. O cliente sai da lista; os pedidos permanecem sem identificação.');
+      if (onAnonimizado) onAnonimizado(); else onClose();
+    } catch (e) {
+      alert('Não foi possível anonimizar: ' + e.message);
+    }
+  };
   return (
     <div onClick={(e) => e.target === e.currentTarget && onClose()} className="fixed inset-0 z-20 flex justify-end bg-[#16291f]/50 backdrop-blur-sm">
       <div className="h-screen w-[460px] max-w-[94vw] overflow-auto bg-[#F4F1EA] shadow-2xl">
@@ -390,6 +458,19 @@ function Drawer({ cliente, onClose }) {
               </div>
             ))}
             {(c.pedidos || []).length === 0 && <div className="text-[13px] text-[#8a8678]">Sem pedidos.</div>}
+            <Sec>Privacidade (LGPD)</Sec>
+            <div className="rounded-xl border border-[#e3ddcf] bg-white p-3.5">
+              <p className="mb-2.5 text-[12px] leading-snug text-[#8a8678]">
+                Direitos do titular: exporte todos os dados deste cliente (pedido de acesso) ou remova a
+                identificação pessoal mantendo os pedidos para relatórios (pedido de eliminação).
+              </p>
+              <button onClick={exportarLgpd} className="mb-2 w-full rounded-lg border border-[#e3ddcf] bg-white px-3 py-2 text-[12.5px] font-semibold text-[#1F3A2E] hover:border-[#B8935A]">
+                📄 Exportar dados do cliente
+              </button>
+              <button onClick={anonimizar} className="w-full rounded-lg border border-[#e9c7c2] bg-[#fdf6f5] px-3 py-2 text-[12.5px] font-semibold text-[#a85a52] hover:border-[#d8a59c]">
+                Anonimizar dados (irreversível)
+              </button>
+            </div>
           </div>
         )}
       </div>
